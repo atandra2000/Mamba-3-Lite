@@ -1,0 +1,57 @@
+# configs/pretrain_a100_400m.yaml
+# Mamba-3-Lite ~400M param Chinchilla-optimal pre-training.
+# Designed for 1x A100 80GB SXM. Target: ~12-15 h at 35-40% MFU.
+#
+# Architecture: d_model=1024, 28 Mamba-3 blocks, 16 SSM heads,
+#               state_dim N=64, chunk=64, 8.0B Chinchilla-optimal tokens.
+#               (~404M params: 28 layers × 14.5M/layer + 51M embed)
+#
+# Stability features:
+#   - 2000-step linear warmup + cosine decay to 5%
+#   - gradient clipping at 1.0
+#   - NaN guard with checkpoint rollback
+#   - weight tying (embed <-> head)
+
+model:
+  vocab_size:          50257          # GPT-2 tokenizer
+  d_model:             1024
+  n_layers:            28             # 28 blocks → ~404M params
+  n_heads:             16             # SSM heads
+  head_dim:            64             # D — per-head channel dim
+  state_dim:           64            # N — SSM state expansion
+  chunk_size:          64             # SSD chunk size (the tunable knob)
+  ffn_dim:             2048           # SwiGLU intermediate (NOT 4096)
+  max_seq_len:         2048
+  dtype:               bf16
+  weight_tying:        true
+  rms_norm_eps:        1.0e-5
+  init_std:            0.02
+
+training:
+  micro_batch_size:              16
+  gradient_accumulation_steps:   2
+  total_steps:                   256000          # ~8.0B tokens
+  warmup_steps:                  2000
+  lr:                            3.0e-4
+  min_lr_ratio:                  0.05
+  weight_decay:                  0.1
+  beta1:                         0.9
+  beta2:                         0.95
+  grad_clip:                     1.0
+  grad_checkpoint:               true
+  grad_checkpoint_every:         4               # checkpoint every 4th layer
+  compile:                       true
+  compile_mode:                  "max-autotune"
+  save_interval:                 4000
+  log_interval:                  50
+  nan_guard:                     true
+  nan_guard_max_consecutive:     5
+  save_dir:                      "checkpoints/pretrain_a100"
+
+data:
+  train_data_path:      "data/pretrain_chinchilla"
+  tokenizer:            "gpt2"
+  shard_size_tokens:    50000000
+  max_tokens:           8000000000
+  data_mix:             "mamba2-default"
+  # mix: fineweb-edu 0.6 / fineweb 0.2 / the-stack-python 0.1 / openmath 0.1

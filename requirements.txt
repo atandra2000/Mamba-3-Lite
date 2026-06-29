@@ -1,0 +1,15 @@
+# Core
+torch>=2.1
+safetensors>=0.4
+pyyaml>=6.0
+tqdm>=4.65
+
+# Optional: experiment tracking
+wandb>=0.16
+
+# Optional: fast SSD path (not required; pure-PyTorch SSD is the default)
+# mamba-ssm>=2.1.0
+# causal-conv1d>=1.3.0
+
+# Dev / test
+pytest>=7.0
