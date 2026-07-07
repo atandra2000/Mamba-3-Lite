@@ -14,9 +14,12 @@ from tqdm import tqdm
 sys.path.append(str(Path(__file__).parent.parent))
 from models.transformer import Mamba3Transformer
 from utils.checkpoint import CheckpointManager
-from utils.distributed import device
 from utils.logging import init_logging, get_logger
 from utils.memory import assert_fits_in_available_gpu, estimate_model_memory_gb
+
+# ponytail: utils/distributed.py deleted — was a thin DEVICE-constant + device() wrapper.
+# Inlined here as the only two call sites.
+_DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def count_parameters(model: nn.Module) -> Tuple[int, int]:
@@ -162,7 +165,7 @@ class Pretrainer:
     """BF16 pre-training loop for single GPU."""
     def __init__(self, config: TrainingConfig):
         self.config = config
-        self.device = device()
+        self.device = _DEVICE  # ponytail: inlined from utils/distributed.py.
         if not torch.cuda.is_available():
             print("[warn] CUDA not available — running on CPU (smoke-testing only).")
         else:

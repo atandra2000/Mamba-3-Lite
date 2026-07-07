@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .mamba_block import Mamba3Block, RMSNorm
+from .mamba_block import Mamba3Block  # ponytail: RMSNorm import dropped — using native nn.RMSNorm.
 
 
 @dataclass
@@ -45,7 +45,7 @@ class Mamba3Transformer(nn.Module):
             for i in range(cfg.n_layers)
         ])
 
-        self.norm_f = RMSNorm(cfg.d_model, eps=cfg.rms_norm_eps)
+        self.norm_f = nn.RMSNorm(cfg.d_model, eps=cfg.rms_norm_eps)  # ponytail: native nn.RMSNorm.
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
 
         if cfg.weight_tying:

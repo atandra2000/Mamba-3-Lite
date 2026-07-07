@@ -1,5 +1,5 @@
 """Single-GPU training logger with optional WandB integration (enable with WANDB_PROJECT env var)."""
-import json, os, time
+import os, time
 from typing import Dict, Optional
 import torch
 
@@ -44,13 +44,8 @@ class TrainingLogger:
         self._loss_window = []
         self._step_start = time.time()
 
-    def save_log(self, filename: str, data: Dict) -> None:
-        with open(filename, "a") as f:
-            f.write(json.dumps(data) + "\n")
-
-    def finish(self) -> None:
-        if self._wandb is not None:
-            self._wandb.finish()
+    # ponytail: save_log and finish removed — zero callers; trainer only calls self.logger.log(...).
+    # Add back when a log-persistence or wandb.finish() caller is wired in.
 
 
 _logger: Optional[TrainingLogger] = None
