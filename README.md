@@ -259,11 +259,8 @@ Mamba-3-Lite/
 │   └── transformer.py                  # top-level Mamba-3
 ├── training/
 │   └── pretrain.py                     # full training loop + resume
-├── inference/
-│   └── generate.py                     # constant-memory decoding
 ├── utils/
 │   ├── checkpoint.py                   # atomic safetensors
-│   ├── distributed.py                  # single-GPU device helper
 │   ├── logging.py                      # WandB-capable logger
 │   └── memory.py                       # VRAM estimator
 ├── data/
@@ -298,9 +295,6 @@ Mamba-3-Lite/
 ├── LICENSE                             # Apache 2.0
 =======
 │   └── launch_a100.sh                    # full-run launcher
-├── inference/
-│   ├── generate.py                       # constant-memory decoding
-│   └── speculative.py                    # MTP-style speculative decode
 ├── SSD.md                                # ★ standalone SSD deep-dive
 ├── LICENSE                               # Apache 2.0
 >>>>>>> 16cab55 (Initial commit: Mamba-3-Lite (complex-valued SSD, ~404M params))
@@ -372,7 +366,7 @@ PRs welcome for:
 - **New data mixes** with documented perplexity deltas
 =======
 - **The missing `tests/` suite** (chunkwise SSD vs naive, complex
-  state shapes, MIMO mixing, training loop, inference shape, utils).
+  state shapes, MIMO mixing, training loop, utils).
 - **New chunkwise algorithms** (e.g., parallel prefix-scan variants).
 - **Selective vs static** A/B/C parameterizations.
 - **Hybrid attention + Mamba blocks** (e.g., 1-in-N global attention).
