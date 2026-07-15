@@ -4,6 +4,11 @@ import torch
 import torch.nn as nn
 
 
+# Approx peak overhead from CUDA context + NCCL + caching allocator
+# (A100 80GB, PyTorch 2.x). Empirically <= 17% of device total.
+STATIC_PYTORCH_OVERHEAD_GB = 13.7
+
+
 def _parameter_bytes(model: nn.Module) -> int:
     return sum(p.numel() * p.element_size() for p in model.parameters())
 
@@ -13,14 +18,8 @@ def _optimiser_bytes(model: nn.Module) -> int:
 
 
 def _kv_cache_bytes(model: nn.Module, seq_len: int, batch_size: int, dtype_bytes: int = 2) -> int:
-    n_layers = sum(1 for m in model.modules() if hasattr(m, "kv_cache") and hasattr(m, "kv_lora_rank"))
-    for m in model.modules():
-        if hasattr(m, "kv_lora_rank") and hasattr(m, "qk_rope_head_dim"):
-            per_token = (m.kv_lora_rank + m.qk_rope_head_dim) * dtype_bytes
-            break
-    else:
-        per_token = 0
-    return n_layers * seq_len * batch_size * per_token
+    # ponytail: Mamba-3 has no KV cache; included for the estimator signature only.
+    return 0
 
 
 def _activation_bytes(seq_len: int, batch_size: int, hidden_dim: int, n_layers: int, grad_checkpoint: bool, dtype_bytes: int = 2) -> int:
@@ -29,9 +28,7 @@ def _activation_bytes(seq_len: int, batch_size: int, hidden_dim: int, n_layers: 
 
 
 def _infer_dim_n_layers(model: nn.Module) -> tuple[int, int]:
-    hd = getattr(model, "dim", 0)
-    if hasattr(model, "embed") and hasattr(model.embed, "dim"):
-        hd = model.embed.dim
+    hd = model.embed.embedding_dim if hasattr(model, "embed") else 0
     nl = len(model.layers) if hasattr(model, "layers") and isinstance(model.layers, nn.ModuleList) else 0
     return hd, nl
 
@@ -40,7 +37,7 @@ def _detect_overhead_gb() -> float:
     if not torch.cuda.is_available():
         return 2.0
     total_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-    return min(13.7, max(2.0, total_gb * 0.17))
+    return min(STATIC_PYTORCH_OVERHEAD_GB, max(2.0, total_gb * 0.17))
 
 
 def estimate_model_memory_gb(model: nn.Module, seq_len: int, batch_size: int, grad_checkpoint: bool = True, overhead_gb: float | None = None) -> float:
