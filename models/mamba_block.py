@@ -35,6 +35,7 @@ class Mamba3Block(nn.Module):
         self.state_dim = cfg["state_dim"]
         self.chunk_size = cfg.get("chunk_size", 64)
         self.rms_norm_eps = cfg.get("rms_norm_eps", 1e-5)
+        self.grad_checkpoint = cfg.get("grad_checkpoint", False)
 
         in_dim = self.n_heads * (self.head_dim + 4 * self.state_dim + 1)
         self.in_proj = nn.Linear(self.d_model, in_dim, bias=False)
@@ -57,6 +58,14 @@ class Mamba3Block(nn.Module):
         # ponytail: dropped redundant no-op `self.A.fill_(-1.0)` — constant_ above already sets it.
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """(B, T, d_model) -> (B, T, d_model)."""
+        if self.grad_checkpoint and self.training:
+            return torch.utils.checkpoint.checkpoint(
+                self._forward_impl, x, use_reentrant=False
+            )
+        return self._forward_impl(x)
+
+    def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
         """(B, T, d_model) -> (B, T, d_model)."""
         B, T, _ = x.shape
         H, D, N = self.n_heads, self.head_dim, self.state_dim
