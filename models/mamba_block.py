@@ -42,7 +42,7 @@ class Mamba3Block(nn.Module):
         self.mimo = MIMO(self.d_model, self.n_heads, self.head_dim)
         self.out_proj = nn.Linear(self.n_heads * self.head_dim, self.d_model, bias=False)
 
-        self.A = nn.Parameter(torch.ones(self.n_heads, dtype=torch.complex64))
+        self.A = nn.Parameter(torch.empty(self.n_heads, dtype=torch.complex64))
 
         # ponytail: native nn.RMSNorm replaces hand-rolled RMSNorm (torch 2.4+); eps passed explicitly.
         self.norm1 = nn.RMSNorm(self.d_model, eps=self.rms_norm_eps)
@@ -52,6 +52,8 @@ class Mamba3Block(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
+        # ponytail: sets A=-1 here; transformer.apply() re-inits only Linear/Embedding,
+        # so A=-1 survives the second pass.
         nn.init.constant_(self.A, -1.0)
         nn.init.normal_(self.in_proj.weight, mean=0.0, std=0.02)
         nn.init.normal_(self.out_proj.weight, mean=0.0, std=0.02)

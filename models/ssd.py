@@ -5,15 +5,6 @@ import torch
 # ponytail: torch.nn.functional as F removed — only ssd_chunkwise (deleted) used F.pad.
 
 
-def segsum(x: torch.Tensor) -> torch.Tensor:
-    """Stable causal segment-sum for the decay matrix."""
-    T = x.size(-1)
-    x_cumsum = torch.cumsum(x, dim=-1)
-    x_seg = x_cumsum.unsqueeze(-1) - x_cumsum.unsqueeze(-2)
-    mask = torch.tril(torch.ones(T, T, device=x.device, dtype=torch.bool))
-    return x_seg.masked_fill(~mask, float("-inf"))
-
-
 def _discretise(dt: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
     """A_bar = exp(softplus(dt) * A)."""
     return torch.exp(torch.nn.functional.softplus(dt) * A)
