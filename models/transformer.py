@@ -27,6 +27,7 @@ class ModelConfig:
     weight_tying: bool = True
     rms_norm_eps: float = 1e-5
     init_std: float = 0.02
+    grad_checkpoint: bool = False  # injected from TrainingConfig at construction time
 
 
 class Mamba3Transformer(nn.Module):

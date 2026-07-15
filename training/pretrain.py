@@ -204,6 +204,10 @@ class Pretrainer:
         self.logger = get_logger()
 
         self._log("Initialising model...")
+        # Inject training-only flags into the model config dict so each Mamba3Block
+        # can read them at construction. (The YAML's grad_checkpoint lives on
+        # TrainingConfig; the model needs it on its own config.)
+        config.model_config.setdefault("grad_checkpoint", config.grad_checkpoint)
         raw_model = Mamba3Transformer(config.model_config).to(self.device)
         total, trainable = count_parameters(raw_model)
         self._log(f"Parameters: {total:,} total / {trainable:,} trainable")
