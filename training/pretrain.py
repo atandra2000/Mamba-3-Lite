@@ -12,7 +12,7 @@ import yaml
 from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).parent.parent))
-from models.transformer import Mamba3Transformer
+from models.transformer import Mamba3Transformer, ModelConfig
 from utils.checkpoint import CheckpointManager
 from utils.logging import init_logging, get_logger
 from utils.memory import estimate_model_memory_gb
@@ -159,6 +159,32 @@ class PretrainDataset(Dataset):
         if self.layout == "dummy":
             return torch.randint(0, self.vocab_size, (self.max_seq_len,)), torch.randint(0, self.vocab_size, (self.max_seq_len,))
         return self._get_window_single(idx) if self.layout == "single" else self._get_window_sharded(idx)
+
+
+def _build_minimal_pretrainer(model_config: dict) -> "Pretrainer":
+    """Build a CPU-only Pretrainer with compile/grad-checkpoint disabled.
+    Used by tests/test_train_step.py to avoid the heavy __init__ side effects.
+    The data_path arg is intentionally absent — train_step does not touch the dataset.
+    """
+    p = Pretrainer.__new__(Pretrainer)
+    p.config = TrainingConfig(
+        model_config=model_config,
+        max_seq_len=model_config.get("max_seq_len", 16),
+        vocab_size=model_config.get("vocab_size", 64),
+        gradient_accumulation_steps=1,
+        max_grad_norm=1.0,
+        nan_guard=True,
+    )
+    p.device = torch.device("cpu")
+    p.amp_dtype = torch.float32
+    p._opt_steps = 0
+    p._log = lambda msg: None  # swallow log output during tests; called as self._log(msg) so a 1-arg lambda is correct
+    p._amp_context = lambda: torch.amp.autocast("cpu", enabled=False)
+    p.model = Mamba3Transformer(ModelConfig(**model_config))
+    p.raw_model = p.model
+    p.optimizer = AdamW(p.model.parameters(), lr=1e-3, fused=False)
+    p.scheduler = LambdaLR(p.optimizer, lr_lambda=lambda s: 1.0)
+    return p
 
 
 class Pretrainer:
