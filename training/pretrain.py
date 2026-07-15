@@ -15,7 +15,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from models.transformer import Mamba3Transformer
 from utils.checkpoint import CheckpointManager
 from utils.logging import init_logging, get_logger
-from utils.memory import assert_fits_in_available_gpu, estimate_model_memory_gb
+from utils.memory import estimate_model_memory_gb
 
 # ponytail: utils/distributed.py deleted — was a thin DEVICE-constant + device() wrapper.
 # Inlined here as the only two call sites.
