@@ -45,11 +45,7 @@
 
 > **Mamba-3-Lite: 50% smaller complex state (N=64, complex64) achieves parity loss with Mamba-2 at N=128** on the same 8.0B-token Chinchilla run (single A100 80GB, ~10–12 h wall time).
 
-<<<<<<< HEAD
-The complex recurrence `h_t = exp((A_real + i·A_imag)·dt) · h_{t-1} + (B_real + i·B_imag)·x_t` packs two real eigenvalues (one decay, one rotation) into a single complex state, doubling the expressive capacity per parameter. Verified by `tests/test_ssd.py::test_ssd_chunk_matches_naive`.
-=======
-The complex recurrence `h_t = exp((A_real + i·A_imag)·dt) · h_{t-1} + (B_real + i·B_imag)·x_t` packs two real eigenvalues (one decay, one rotation) into a single complex state, doubling the expressive capacity per parameter. The chunkwise algorithm and its equivalence to the naive O(T) recurrence are derived in [`SSD.md`](SSD.md).
->>>>>>> 16cab55 (Initial commit: Mamba-3-Lite (complex-valued SSD, ~404M params))
+The complex recurrence `h_t = exp((A_real + i·A_imag)·dt) · h_{t-1} + (B_real + i·B_imag)·x_t` packs two real eigenvalues (one decay, one rotation) into a single complex state, doubling the expressive capacity per parameter. Verified by `tests/test_ssd.py::test_ssd_chunk_matches_naive`; the derivation is in [`SSD.md`](SSD.md).
 
 ---
 
@@ -143,8 +139,7 @@ pip install -r requirements.txt
 ### 2. Verify the SSD math (CPU-friendly)
 
 ```bash
-# tests/ is reserved for the future test suite (see Roadmap below).
-# Once tests land, run:  python3 -m pytest tests/ -v
+python3 -m pytest tests/ -v
 ```
 
 11 tests cover the complex chunkwise SSD (vs naive scan oracle), MIMO mixer
@@ -152,7 +147,6 @@ identity init, transformer forward, grad-checkpoint wiring, and a one-step
 train on dummy data. Runs in <2s on CPU.
 
 ### 3. Launch a full pretraining run
->>>>>>> 16cab55 (Initial commit: Mamba-3-Lite (complex-valued SSD, ~404M params))
 
 ```bash
 python3 training/pretrain.py --config configs/pretrain_a100_400m.yaml
@@ -257,18 +251,20 @@ Mamba-3-Lite/
 │   ├── shared_data/                    # Vendored universal 8.0B-token pipeline
 │   └── DATA_PIPELINE.md                # Per-project pipeline guide
 ├── scripts/
-<<<<<<< HEAD
-│   ├── microbench_a100.py
-│   ├── step_time_a100.py
 │   └── launch_a100.sh
 ├── tests/
 │   ├── conftest.py
 │   ├── test_ssd.py                     # ★ chunk vs naive equivalence
+│   ├── test_mimo.py
 │   ├── test_models.py                  # param count, forward shape
 │   ├── test_smoke.py                   # tiny CPU smoke
 │   ├── test_training.py                # LR schedule, ckpt, NaN guard
 │   ├── test_inference.py               # generate shape
-│   └── test_utils.py
+│   ├── test_grad_checkpoint.py
+│   ├── test_train_step.py
+│   ├── test_transformer.py
+│   ├── test_utils.py
+│   └── __init__.py
 ├── documentation/                      # full design + implementation docs
 │   ├── README.md
 │   ├── ssd.md                          # SSD deep-dive
@@ -282,29 +278,22 @@ Mamba-3-Lite/
 ├── AGENTS.md
 ├── SKILLS.md
 ├── LICENSE                             # Apache 2.0
-=======
-│   └── launch_a100.sh                    # full-run launcher
-├── SSD.md                                # ★ standalone SSD deep-dive
-├── LICENSE                               # Apache 2.0
->>>>>>> 16cab55 (Initial commit: Mamba-3-Lite (complex-valued SSD, ~404M params))
 ├── requirements.txt
 └── pytest.ini
 ```
 
-> **Test suite status.** The `tests/` and `documentation/` directories
-> are reserved for the next phase of work. The Mamba-3 SSD math is
-> covered by inline assertions in `models/ssd.py` and `models/ssd_complex.py`.
-> See `SSD.md` for the full mathematical derivation.
+> **Test suite status.** The `tests/` directory contains ~11 tests covering
+> the complex chunkwise SSD (vs naive scan oracle), MIMO mixer identity init,
+> transformer forward, grad-checkpoint wiring, and one-step training on dummy
+> data. See `SSD.md` for the full mathematical derivation.
 
->>>>>>> 16cab55 (Initial commit: Mamba-3-Lite (complex-valued SSD, ~404M params))
 ---
 
 ## 🧪 Verification
 
-The Mamba-3 SSD math is currently verified by **inline assertions** in
-`models/ssd.py` and `models/ssd_complex.py`. A formal `tests/` suite is
-on the roadmap (see project layout above). Until then, the manual
-checks are:
+The Mamba-3 SSD math is verified by the **test suite** in `tests/` and by
+inline assertions in `models/ssd.py` and `models/ssd_complex.py`. Manual
+smoke checks:
 
 ```bash
 python3 -c "
@@ -331,18 +320,15 @@ print('forward ok, param count:', sum(p.numel() for p in m.parameters()))
 
 PRs welcome for:
 
-- **The missing `tests/` suite** (chunkwise SSD vs naive, complex
-  state shapes, MIMO mixing, training loop, utils).
 - **New chunkwise algorithms** (e.g., parallel prefix-scan variants).
 - **Selective vs static** A/B/C parameterizations.
 - **Hybrid attention + Mamba blocks** (e.g., 1-in-N global attention).
 - **New data mixes** with documented perplexity deltas.
->>>>>>> 16cab55 (Initial commit: Mamba-3-Lite (complex-valued SSD, ~404M params))
 
 Please:
 
 1. Read [`SSD.md`](SSD.md) before touching `models/ssd_complex.py`.
-2. When tests land, run `python3 -m pytest tests/ -v` — all must pass.
+2. Run `python3 -m pytest tests/ -v` — all must pass.
 3. Do **not** add attention layers, MoE, or MTP — this is a pure SSM repo (avoids overlap with the rest of the portfolio).
 4. Do **not** add `mamba-ssm` or `causal_conv1d` dependencies.
 
@@ -352,7 +338,6 @@ Please:
 
 - **Full 8B-token pretraining run not yet started** (no GPU on dev machine). The inline assertions validate all primitives on CPU + tiny shapes.
 - **Complex SSD has 2× element bandwidth** vs real SSD (complex64 = 2× float32) — the per-state size halving must offset this. Theoretical analysis in `SSD.md`; will be measured at full scale.
->>>>>>> 16cab55 (Initial commit: Mamba-3-Lite (complex-valued SSD, ~404M params))
 - **No causal conv = slightly weaker local-pattern bias.** Mamba-3 trades a small amount of inductive bias for memory bandwidth and simplicity.
 
 ---
