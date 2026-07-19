@@ -33,7 +33,7 @@ in Mamba-3?", "Tune chunk_size for throughput."
 - Training: BF16 + `torch.compile` + TF32. FA2 disabled (we use the
   chunkwise recurrence). NaN guard with checkpoint rollback.
 - **Pure SSM** — no attention layers, no MoE, no MTP. Deliberate
-  separation from FusionLLM.
+   separation from HyMo (the portfolio's hybrid attention/SSM project).
 
 ## 2. Hard rules
 

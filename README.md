@@ -36,7 +36,7 @@
 | [GPT-2 (From Scratch)](https://github.com/atandra2000/GPT-From-Scratch) | Transformer | — | — | — |
 | [LLaMA-3-Lite](https://github.com/atandra2000/LLaMA-3-Lite) | Transformer + GQA | — | — | — |
 | [DeepSeek-v3-Lite](https://github.com/atandra2000/DeepSeek-v3-Lite) | MLA + MoE | — | — | — |
-| [FusionLLM](https://github.com/atandra2000/FusionLLM) | MLA + GDN hybrid | real SSM (in GDN blocks) | — | — |
+| [HyMo](https://github.com/atandra2000/HyMo) | GDN + MLA hybrid | real SSM (in GDN blocks) | — | — |
 | **Mamba-3-Lite** | **Pure complex SSD** | **N=64, complex64** | **✅ MIMO** | **❌ none** |
 
 ---
