@@ -10,26 +10,6 @@ def _discretise(dt: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
     return torch.exp(torch.nn.functional.softplus(dt) * A)
 
 
-def ssd_naive(
-    x: torch.Tensor, A: torch.Tensor, B_t: torch.Tensor, C_t: torch.Tensor, dt: torch.Tensor,
-) -> torch.Tensor:
-    """O(T) sequential SSM scan — reference implementation."""
-    B_, T, H, D = x.shape
-    assert A.shape == (H,), f"A must be (H,), got {A.shape}"
-    N = B_t.shape[-1]
-
-    A_bar = _discretise(dt, A)
-    s = torch.zeros(B_, H, N, D, dtype=x.dtype, device=x.device)
-    ys = []
-
-    for t in range(T):
-        s = A_bar[:, t].unsqueeze(-1).unsqueeze(-1) * s \
-            + B_t[:, t].unsqueeze(-1) * x[:, t].unsqueeze(-2)
-        ys.append((C_t[:, t].unsqueeze(-1) * s).sum(dim=-2))
-
-    return torch.stack(ys, dim=1)
-
-
 def ssd_naive_complex(
     x: torch.Tensor, A: torch.Tensor, B_t: torch.Tensor, C_t: torch.Tensor, dt: torch.Tensor,
 ) -> torch.Tensor:

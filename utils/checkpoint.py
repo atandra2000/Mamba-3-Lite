@@ -27,15 +27,12 @@ class CheckpointManager:
             else:
                 seen_ptrs.add(ptr)
                 deduped[k] = v.contiguous()
-        self._atomic_write(self.save_dir / f"model_step_{step}.safetensors",
-                           lambda tmp: save_file(deduped, tmp), ".safetensors.tmp")
-        self._atomic_write(self.save_dir / f"optim_step_{step}.pt",
-                           lambda tmp: torch.save(optimizer.state_dict(), tmp), ".pt.tmp")
+        save_file(deduped, self.save_dir / f"model_step_{step}.safetensors")
+        torch.save(optimizer.state_dict(), self.save_dir / f"optim_step_{step}.pt")
         meta: dict = {"step": step}
         if extra_meta:
             meta.update({k: v for k, v in extra_meta.items() if k != "step"})
-        self._atomic_write(self.save_dir / f"meta_step_{step}.json",
-                           lambda tmp: self._write_json(tmp, meta), ".json.tmp")
+        self._write_json(self.save_dir / f"meta_step_{step}.json", meta)
         logger.info("[checkpoint] saved step %d → %s", step, self.save_dir)
 
     def load(self, model: torch.nn.Module, step: int, device: str = "cuda",
@@ -72,21 +69,6 @@ class CheckpointManager:
 
     # ponytail: list_checkpoints/delete_checkpoint/keep_last_n retention API removed —
     # only callers were tests; training loop uses save + latest_step. Add back when retention is wired in.
-
-    def _atomic_write(self, path: Path, writer, suffix: str) -> None:
-        # ponytail: collapsed three near-identical _atomic_save_* helpers into one.
-        # mkstemp + os.replace stays (stdlib, atomic); cleanup-on-error stays.
-        fd, tmp = tempfile.mkstemp(dir=self.save_dir, suffix=suffix)
-        os.close(fd)
-        try:
-            writer(tmp)
-            os.replace(tmp, path)
-        except Exception:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
 
     @staticmethod
     def _write_json(tmp: str, obj: dict) -> None:

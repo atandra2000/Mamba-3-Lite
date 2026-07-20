@@ -15,7 +15,6 @@ sys.path.append(str(Path(__file__).parent.parent))
 from models.transformer import Mamba3Transformer, ModelConfig
 from utils.checkpoint import CheckpointManager
 from utils.logging import init_logging, get_logger
-from utils.memory import estimate_model_memory_gb
 
 # ponytail: utils/distributed.py deleted — was a thin DEVICE-constant + device() wrapper.
 # Inlined here as the only two call sites.
@@ -27,16 +26,6 @@ def count_parameters(model: nn.Module) -> Tuple[int, int]:
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return total, trainable
 
-
-def make_warmup_cosine_lambda(warmup_steps: int, total_steps: int, min_lr_ratio: float = 0.1):
-    def lr_lambda(step: int) -> float:
-        if step < warmup_steps:
-            return step / max(1, warmup_steps)
-        if step >= total_steps:
-            return min_lr_ratio
-        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-        return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress))
-    return lr_lambda
 
 
 @dataclass
@@ -93,40 +82,26 @@ class PretrainDataset(Dataset):
         if not shard_paths:
             raise FileNotFoundError(f"No `shard_*.bin` files in {data_dir}")
         self.layout = "sharded"
-        self.shard_paths = [str(p) for p in shard_paths]
-        self.shard_sizes = []
-        self.shard_offsets = []
-        running = 0
-        for p in self.shard_paths:
-            t = torch.load(p, weights_only=True, map_location="cpu")
-            n = t.numel()
-            del t
-            self.shard_sizes.append(n)
-            self.shard_offsets.append(running)
-            running += n
-        self._total_tokens = running
+        self.shards = [torch.load(p, weights_only=True, mmap=True) for p in shard_paths]
+        self.shard_sizes = [s.numel() for s in self.shards]
+        self.shard_offsets = [0] + [sum(self.shard_sizes[:i+1]) for i in range(len(self.shard_sizes)-1)]
+        self._total_tokens = sum(self.shard_sizes)
         self._n_samples = (self._total_tokens - 1) // self.max_seq_len
-        self._shard_cache = {}
-        self._shard_cache_order = []
 
     def _get_window_sharded(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         start = idx * self.max_seq_len
         shard_idx, offset_in_shard = self._locate(start)
         if offset_in_shard + (self.max_seq_len + 1) <= self.shard_sizes[shard_idx]:
-            shard = self._load_shard(shard_idx)
-            chunk = shard[offset_in_shard: offset_in_shard + self.max_seq_len + 1]
+            chunk = self.shards[shard_idx][offset_in_shard: offset_in_shard + self.max_seq_len + 1]
             return chunk[:-1], chunk[1:]
-        return self._get_window_cross_shard(start)
-
-    def _get_window_cross_shard(self, start: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        
         needed = self.max_seq_len + 1
         collected = []
         cursor = start
         while len(collected) < needed:
-            shard_idx, offset_in_shard = self._locate(cursor)
-            shard = self._load_shard(shard_idx)
-            take = min(needed - len(collected), self.shard_sizes[shard_idx] - offset_in_shard)
-            collected.extend(shard[offset_in_shard: offset_in_shard + take].tolist())
+            s_idx, off = self._locate(cursor)
+            take = min(needed - len(collected), self.shard_sizes[s_idx] - off)
+            collected.extend(self.shards[s_idx][off: off + take].tolist())
             cursor += take
         chunk = torch.tensor(collected[:needed], dtype=torch.long)
         return chunk[:-1], chunk[1:]
@@ -140,17 +115,6 @@ class PretrainDataset(Dataset):
             else:
                 hi = mid - 1
         return lo, global_idx - self.shard_offsets[lo]
-
-    def _load_shard(self, shard_idx: int) -> torch.Tensor:
-        if shard_idx in self._shard_cache:
-            return self._shard_cache[shard_idx]
-        t = torch.load(self.shard_paths[shard_idx], weights_only=True, map_location="cpu")
-        self._shard_cache[shard_idx] = t
-        self._shard_cache_order.append(shard_idx)
-        while len(self._shard_cache_order) > 2:
-            evict = self._shard_cache_order.pop(0)
-            self._shard_cache.pop(evict, None)
-        return t
 
     def __len__(self) -> int:
         return self._n_samples
@@ -183,7 +147,7 @@ def _build_minimal_pretrainer(model_config: dict) -> "Pretrainer":
     p.model = Mamba3Transformer(ModelConfig(**model_config))
     p.raw_model = p.model
     p.optimizer = AdamW(p.model.parameters(), lr=1e-3, fused=False)
-    p.scheduler = LambdaLR(p.optimizer, lr_lambda=lambda s: 1.0)
+    p.scheduler = torch.optim.lr_scheduler.LambdaLR(p.optimizer, lr_lambda=lambda s: 1.0)
     return p
 
 
@@ -235,8 +199,10 @@ class Pretrainer:
             {"params": no_decay_params, "weight_decay": 0.0},
         ], lr=config.lr, betas=(config.beta1, config.beta2), fused=torch.cuda.is_available())
 
-        lr_lambda = make_warmup_cosine_lambda(warmup_steps=config.warmup_steps, total_steps=config.max_steps, min_lr_ratio=config.min_lr_ratio)
-        self.scheduler = LambdaLR(self.optimizer, lr_lambda)
+        from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
+        warmup = LinearLR(self.optimizer, start_factor=0.01, end_factor=1.0, total_iters=config.warmup_steps)
+        cosine = CosineAnnealingLR(self.optimizer, T_max=config.max_steps - config.warmup_steps, eta_min=config.lr * config.min_lr_ratio)
+        self.scheduler = SequentialLR(self.optimizer, schedulers=[warmup, cosine], milestones=[config.warmup_steps])
         self.amp_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float32
         self.ckpt_manager = CheckpointManager(config.checkpoint_dir)
         self._opt_steps = 0
