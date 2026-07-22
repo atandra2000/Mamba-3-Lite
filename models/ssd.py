@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import torch
-# ponytail: torch.nn.functional as F removed — only ssd_chunkwise (deleted) used F.pad.
 
 
 def _discretise(dt: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
@@ -24,7 +23,3 @@ def ssd_naive_complex(
             + B_t[:, t].unsqueeze(-1) * x[:, t].unsqueeze(-2)
         ys.append((C_t[:, t].unsqueeze(-1) * s).sum(dim=-2))
     return torch.stack(ys, dim=1)
-
-
-# ponytail: real-valued ssd_chunkwise deleted — superseded by ssd_complex_chunkwise
-# (models/ssd_complex.py, production path). ssd_naive kept as the reference oracle.

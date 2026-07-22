@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .ssd_complex import ssd_complex_chunkwise  # ponytail: ssd_chunkwise deleted (dead), ssd_naive kept in ssd.py as reference oracle
+from .ssd_complex import ssd_complex_chunkwise
 from .mimo import MIMO
 
 
@@ -34,6 +34,8 @@ class Mamba3Block(nn.Module):
         self.head_dim = cfg["head_dim"]
         self.state_dim = cfg["state_dim"]
         self.chunk_size = cfg.get("chunk_size", 64)
+        self.ssd_dispatch = cfg.get("ssd_dispatch", "pytorch")
+        self._triton_fallback_warned = False
         self.rms_norm_eps = cfg.get("rms_norm_eps", 1e-5)
         self.grad_checkpoint = cfg.get("grad_checkpoint", False)
 
@@ -44,7 +46,6 @@ class Mamba3Block(nn.Module):
 
         self.A = nn.Parameter(torch.empty(self.n_heads, dtype=torch.complex64))
 
-        # ponytail: native nn.RMSNorm replaces hand-rolled RMSNorm (torch 2.4+); eps passed explicitly.
         self.norm1 = nn.RMSNorm(self.d_model, eps=self.rms_norm_eps)
         self.norm2 = nn.RMSNorm(self.d_model, eps=self.rms_norm_eps)
         self.ffn = SwiGLUFFN(self.d_model, cfg["ffn_dim"])
@@ -52,12 +53,9 @@ class Mamba3Block(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        # ponytail: sets A=-1 here; transformer.apply() re-inits only Linear/Embedding,
-        # so A=-1 survives the second pass.
         nn.init.constant_(self.A, -1.0)
         nn.init.normal_(self.in_proj.weight, mean=0.0, std=0.02)
         nn.init.normal_(self.out_proj.weight, mean=0.0, std=0.02)
-        # ponytail: dropped redundant no-op `self.A.fill_(-1.0)` — constant_ above already sets it.
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """(B, T, d_model) -> (B, T, d_model)."""
@@ -89,8 +87,27 @@ class Mamba3Block(nn.Module):
 
         dt = proj[..., -H:]
 
-        # ponytail: use_naive_ssd flag removed — never set in any config; complex path is unconditional.
-        y = ssd_complex_chunkwise(x_ssm, self.A, B_t, C_t, dt, chunk_size=self.chunk_size)
+        if self.ssd_dispatch == "triton":
+            try:
+                y = ssd_complex_chunkwise(
+                    x_ssm, self.A, B_t, C_t, dt,
+                    chunk_size=self.chunk_size, ssd_dispatch="triton",
+                )
+            except (ImportError, ValueError) as exc:
+                if not self._triton_fallback_warned:
+                    print(
+                        f"[Mamba3Block {self.layer_idx}] ssd_dispatch='triton' "
+                        f"unavailable ({type(exc).__name__}: {exc}); "
+                        f"falling back to 'pytorch' for this block."
+                    )
+                    self._triton_fallback_warned = True
+                y = ssd_complex_chunkwise(
+                    x_ssm, self.A, B_t, C_t, dt, chunk_size=self.chunk_size,
+                )
+        else:
+            y = ssd_complex_chunkwise(
+                x_ssm, self.A, B_t, C_t, dt, chunk_size=self.chunk_size,
+            )
 
         y = self.mimo(y)
         y = y.reshape(B, T, H * D)

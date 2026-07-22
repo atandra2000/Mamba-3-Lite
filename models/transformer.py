@@ -21,6 +21,7 @@ class ModelConfig:
     head_dim: int = 64
     state_dim: int = 64
     chunk_size: int = 64
+    ssd_dispatch: str = "pytorch"  # 'pytorch' | 'triton' (requires ENABLE_TRITON_KERNELS=1)
     ffn_dim: int = 2048
     max_seq_len: int = 2048
     dtype: str = "bf16"

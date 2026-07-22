@@ -151,6 +151,22 @@ def _build_minimal_pretrainer(model_config: dict) -> "Pretrainer":
     return p
 
 
+def _enforce_triton_env_var(model_config: dict, log) -> None:
+    """Force any 'triton' dispatch back to 'pytorch' if ENABLE_TRITON_KERNELS != 1.
+
+    AGENTS rule #6: a default-config run must never silently switch to a
+    Triton path. The per-block dispatch in Mamba3Block has its own one-shot
+    warn-and-fallback for the env-var-set-but-kernel-unavailable case.
+    """
+    if os.environ.get("ENABLE_TRITON_KERNELS", "0") != "1" and \
+            model_config.get("ssd_dispatch") == "triton":
+        log(
+            "[warn] ssd_dispatch='triton' requires ENABLE_TRITON_KERNELS=1; "
+            "forcing ssd_dispatch='pytorch' for this run."
+        )
+        model_config["ssd_dispatch"] = "pytorch"
+
+
 class Pretrainer:
     """BF16 pre-training loop for single GPU."""
     def __init__(self, config: TrainingConfig):
@@ -168,9 +184,9 @@ class Pretrainer:
         self.logger = get_logger()
 
         self._log("Initialising model...")
-        # Inject training-only flags into the model config dict so each Mamba3Block
-        # can read them at construction. (The YAML's grad_checkpoint lives on
-        # TrainingConfig; the model needs it on its own config.)
+        # Force-back any 'triton' dispatch to 'pytorch' if the master env-var
+        # is not set. See _enforce_triton_env_var for the full contract.
+        _enforce_triton_env_var(config.model_config, self._log)
         config.model_config.setdefault("grad_checkpoint", config.grad_checkpoint)
         raw_model = Mamba3Transformer(config.model_config).to(self.device)
         total, trainable = count_parameters(raw_model)
