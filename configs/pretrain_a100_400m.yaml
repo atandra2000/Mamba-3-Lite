@@ -39,7 +39,6 @@ training:
   beta2:                         0.95
   grad_clip:                     1.0
   grad_checkpoint:               true
-  # ponytail: grad_checkpoint_every deleted — no code reads it (grep returned nothing).
   compile:                       true
   compile_mode:                  "max-autotune"
   save_interval:                 4000

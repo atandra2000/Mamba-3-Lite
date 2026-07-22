@@ -67,23 +67,14 @@ class CheckpointManager:
         steps = self._list_steps()
         return next((s for s in sorted(steps, reverse=True) if self._checkpoint_complete(s)), None)
 
-    # ponytail: list_checkpoints/delete_checkpoint/keep_last_n retention API removed —
-    # only callers were tests; training loop uses save + latest_step. Add back when retention is wired in.
-
     @staticmethod
     def _write_json(tmp: str, obj: dict) -> None:
-        # ponytail: default=str replaces the deleted local _json_default — covers scheduler/asdict/config types.
         with open(tmp, "w") as f:
             json.dump(obj, f, indent=2, default=str)
 
     def _list_steps(self) -> list:
-        steps = []
-        for p in self.save_dir.glob("model_step_*.safetensors"):
-            try:
-                steps.append(int(p.stem.split("_")[-1]))
-            except ValueError:
-                pass
-        return steps
+        return [int(p.stem.removeprefix("model_step_"))
+                for p in self.save_dir.glob("model_step_[0-9]*.safetensors")]
 
     def _checkpoint_complete(self, step: int) -> bool:
         return all((self.save_dir / n).exists() for n in [

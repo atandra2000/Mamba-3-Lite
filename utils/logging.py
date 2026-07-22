@@ -5,10 +5,10 @@ import torch
 
 
 class TrainingLogger:
-    """Step-driven logger: prints a rolling-window summary every log_interval steps; optionally forwards to WandB."""
+    """Step-driven logger: prints a rolling-window summary every log_every steps; optionally forwards to WandB."""
 
-    def __init__(self, log_interval: int = 10, seq_len: int = 1024):
-        self.log_interval = log_interval
+    def __init__(self, log_every: int = 10, seq_len: int = 1024):
+        self.log_every = log_every
         self.seq_len = seq_len
         self._start = time.time()
         self._step_start = time.time()
@@ -25,11 +25,11 @@ class TrainingLogger:
 
     def log(self, step: int, loss: float, metrics: Optional[Dict[str, float]] = None, lr: float = 0.0) -> None:
         self._loss_window.append(loss)
-        if step % self.log_interval != 0 or not self._loss_window:
+        if step % self.log_every != 0 or not self._loss_window:
             return
         avg_loss = sum(self._loss_window) / len(self._loss_window)
         elapsed = max(time.time() - self._step_start, 1e-6)
-        tokens_per_sec = (self.log_interval * self.seq_len) / elapsed
+        tokens_per_sec = (self.log_every * self.seq_len) / elapsed
         ppl = torch.tensor(avg_loss).exp().item()
         parts = [f"step={step:>7}", f"loss={avg_loss:.4f}", f"ppl={ppl:.2f}", f"lr={lr:.2e}", f"tps={tokens_per_sec:,.0f}"]
         if metrics:
@@ -43,21 +43,3 @@ class TrainingLogger:
             self._wandb.log(log_dict, step=step)
         self._loss_window = []
         self._step_start = time.time()
-
-    # ponytail: save_log and finish removed — zero callers; trainer only calls self.logger.log(...).
-    # Add back when a log-persistence or wandb.finish() caller is wired in.
-
-
-_logger: Optional[TrainingLogger] = None
-
-
-def init_logging(log_interval: int = 10, seq_len: int = 1024) -> None:
-    global _logger
-    _logger = TrainingLogger(log_interval=log_interval, seq_len=seq_len)
-
-
-def get_logger() -> TrainingLogger:
-    global _logger
-    if _logger is None:
-        _logger = TrainingLogger()
-    return _logger

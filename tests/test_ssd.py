@@ -1,8 +1,7 @@
 """Equivalence and edge-case tests for ssd_complex_chunkwise vs ssd_naive_complex."""
 import torch
 
-from models.ssd import ssd_naive_complex
-from models.ssd_complex import ssd_complex_chunkwise
+from models.ssd_complex import ssd_complex_chunkwise, ssd_naive_complex
 
 
 def test_chunkwise_matches_naive_complex():

@@ -1,4 +1,4 @@
-import argparse, math, os, sys
+import argparse, bisect, os, sys
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -6,7 +6,6 @@ from typing import Dict, Optional, Tuple
 import torch, torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import LambdaLR
 from torch.amp import autocast
 import yaml
 from tqdm import tqdm
@@ -14,10 +13,8 @@ from tqdm import tqdm
 sys.path.append(str(Path(__file__).parent.parent))
 from models.transformer import Mamba3Transformer, ModelConfig
 from utils.checkpoint import CheckpointManager
-from utils.logging import init_logging, get_logger
+from utils.logging import TrainingLogger
 
-# ponytail: utils/distributed.py deleted — was a thin DEVICE-constant + device() wrapper.
-# Inlined here as the only two call sites.
 _DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
@@ -107,13 +104,7 @@ class PretrainDataset(Dataset):
         return chunk[:-1], chunk[1:]
 
     def _locate(self, global_idx: int) -> Tuple[int, int]:
-        lo, hi = 0, len(self.shard_offsets) - 1
-        while lo < hi:
-            mid = (lo + hi + 1) // 2
-            if self.shard_offsets[mid] <= global_idx:
-                lo = mid
-            else:
-                hi = mid - 1
+        lo = bisect.bisect_right(self.shard_offsets, global_idx) - 1
         return lo, global_idx - self.shard_offsets[lo]
 
     def __len__(self) -> int:
@@ -125,30 +116,46 @@ class PretrainDataset(Dataset):
         return self._get_window_single(idx) if self.layout == "single" else self._get_window_sharded(idx)
 
 
-def _build_minimal_pretrainer(model_config: dict) -> "Pretrainer":
-    """Build a CPU-only Pretrainer with compile/grad-checkpoint disabled.
-    Used by tests/test_train_step.py to avoid the heavy __init__ side effects.
-    The data_path arg is intentionally absent — train_step does not touch the dataset.
+def train_step(
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler._LRScheduler,
+    config: TrainingConfig,
+    amp_context,
+    log,
+    opt_steps: int,
+    tokens: torch.Tensor,
+    targets: torch.Tensor,
+    micro_step: int,
+) -> Tuple[Optional[Dict[str, float]], int]:
+    """One forward+backward+optional-step. Returns (metrics_or_None, new_opt_steps).
+
+    Module-level so tests can call it directly without spinning up the full
+    Pretrainer (which has heavy CUDA / torch.compile / logger side effects).
     """
-    p = Pretrainer.__new__(Pretrainer)
-    p.config = TrainingConfig(
-        model_config=model_config,
-        max_seq_len=model_config.get("max_seq_len", 16),
-        vocab_size=model_config.get("vocab_size", 64),
-        gradient_accumulation_steps=1,
-        max_grad_norm=1.0,
-        nan_guard=True,
-    )
-    p.device = torch.device("cpu")
-    p.amp_dtype = torch.float32
-    p._opt_steps = 0
-    p._log = lambda msg: None  # swallow log output during tests; called as self._log(msg) so a 1-arg lambda is correct
-    p._amp_context = lambda: torch.amp.autocast("cpu", enabled=False)
-    p.model = Mamba3Transformer(ModelConfig(**model_config))
-    p.raw_model = p.model
-    p.optimizer = AdamW(p.model.parameters(), lr=1e-3, fused=False)
-    p.scheduler = torch.optim.lr_scheduler.LambdaLR(p.optimizer, lr_lambda=lambda s: 1.0)
-    return p
+    is_opt_step = (micro_step + 1) % config.gradient_accumulation_steps == 0
+    with amp_context:
+        logits = model(tokens)
+        loss = torch.nn.functional.cross_entropy(
+            logits.reshape(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-100,
+        )
+        ce_loss_val = float(loss.item())
+        loss = loss / config.gradient_accumulation_steps
+
+    if config.nan_guard and (torch.isnan(loss).any().item() or torch.isinf(loss).any().item()):
+        log(f"[nan-guard] NaN/Inf at micro_step={micro_step}, opt_steps={opt_steps}. Skipping backward.")
+        optimizer.zero_grad(set_to_none=True)
+        return None, opt_steps
+
+    loss.backward()
+    if is_opt_step:
+        nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad(set_to_none=True)
+        opt_steps += 1
+
+    return {"loss": ce_loss_val}, opt_steps
 
 
 def _enforce_triton_env_var(model_config: dict, log) -> None:
@@ -171,7 +178,7 @@ class Pretrainer:
     """BF16 pre-training loop for single GPU."""
     def __init__(self, config: TrainingConfig):
         self.config = config
-        self.device = _DEVICE  # ponytail: inlined from utils/distributed.py.
+        self.device = _DEVICE
         if not torch.cuda.is_available():
             print("[warn] CUDA not available — running on CPU (smoke-testing only).")
         else:
@@ -180,8 +187,10 @@ class Pretrainer:
             torch.set_float32_matmul_precision("high")
             torch.backends.cudnn.benchmark = True
 
-        init_logging(config.log_every, seq_len=config.max_seq_len)
-        self.logger = get_logger()
+        self.amp_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float32
+        self.ckpt_manager = CheckpointManager(config.checkpoint_dir)
+        self.logger = TrainingLogger(log_every=config.log_every, seq_len=config.max_seq_len)
+        self._opt_steps = 0
 
         self._log("Initialising model...")
         # Force-back any 'triton' dispatch to 'pytorch' if the master env-var
@@ -234,27 +243,12 @@ class Pretrainer:
             return autocast("cpu", enabled=False)
 
     def train_step(self, tokens: torch.Tensor, targets: torch.Tensor, micro_step: int) -> Optional[Dict[str, float]]:
-        is_opt_step = (micro_step + 1) % self.config.gradient_accumulation_steps == 0
-        with self._amp_context():
-            logits = self.model(tokens)
-            loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-100)
-            _ce_loss_val = float(loss.item())
-            loss = loss / self.config.gradient_accumulation_steps
-
-        if self.config.nan_guard and (torch.isnan(loss).any().item() or torch.isinf(loss).any().item()):
-            self._log(f"[nan-guard] NaN/Inf at micro_step={micro_step}, opt_steps={self._opt_steps}. Skipping backward.")
-            self.optimizer.zero_grad(set_to_none=True)
-            return None
-
-        loss.backward()
-        if is_opt_step:
-            nn.utils.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
-            self.optimizer.step()
-            self.scheduler.step()
-            self.optimizer.zero_grad(set_to_none=True)
-            self._opt_steps += 1
-
-        return {"loss": _ce_loss_val}
+        result, self._opt_steps = train_step(
+            self.model, self.optimizer, self.scheduler, self.config,
+            self._amp_context(), self._log, self._opt_steps,
+            tokens, targets, micro_step,
+        )
+        return result
 
     def save_checkpoint(self, step: int, tag: str = "") -> None:
         state = self.raw_model.state_dict()

@@ -9,20 +9,6 @@ from .ssd_complex import ssd_complex_chunkwise
 from .mimo import MIMO
 
 
-class SwiGLUFFN(nn.Module):
-    """SwiGLU FFN: fused gate+up matmul -> SiLU(gate)*up -> down."""
-
-    def __init__(self, d_model: int, ffn_dim: int):
-        super().__init__()
-        self.gate_up = nn.Linear(d_model, 2 * ffn_dim, bias=False)
-        self.down = nn.Linear(ffn_dim, d_model, bias=False)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        gate_up = self.gate_up(x)
-        gate, up = gate_up.chunk(2, dim=-1)
-        return self.down(F.silu(gate) * up)
-
-
 class Mamba3Block(nn.Module):
     """One Mamba-3 layer with complex state, MIMO mixing, and no causal conv."""
 
@@ -45,17 +31,18 @@ class Mamba3Block(nn.Module):
         self.out_proj = nn.Linear(self.n_heads * self.head_dim, self.d_model, bias=False)
 
         self.A = nn.Parameter(torch.empty(self.n_heads, dtype=torch.complex64))
+        nn.init.constant_(self.A, -1.0)  # Mamba-3 SSM eigenvalue init (real part = -1, imag = 0).
 
         self.norm1 = nn.RMSNorm(self.d_model, eps=self.rms_norm_eps)
         self.norm2 = nn.RMSNorm(self.d_model, eps=self.rms_norm_eps)
-        self.ffn = SwiGLUFFN(self.d_model, cfg["ffn_dim"])
+        # SwiGLU FFN: fused gate+up matmul -> silu(gate)*up -> down.
+        ffn_dim = cfg["ffn_dim"]
+        self.ffn_gate_up = nn.Linear(self.d_model, 2 * ffn_dim, bias=False)
+        self.ffn_down = nn.Linear(ffn_dim, self.d_model, bias=False)
 
-        self._init_weights()
-
-    def _init_weights(self):
-        nn.init.constant_(self.A, -1.0)
-        nn.init.normal_(self.in_proj.weight, mean=0.0, std=0.02)
-        nn.init.normal_(self.out_proj.weight, mean=0.0, std=0.02)
+    def _ffn(self, x: torch.Tensor) -> torch.Tensor:
+        gate, up = self.ffn_gate_up(x).chunk(2, dim=-1)
+        return self.ffn_down(F.silu(gate) * up)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """(B, T, d_model) -> (B, T, d_model)."""
@@ -87,27 +74,7 @@ class Mamba3Block(nn.Module):
 
         dt = proj[..., -H:]
 
-        if self.ssd_dispatch == "triton":
-            try:
-                y = ssd_complex_chunkwise(
-                    x_ssm, self.A, B_t, C_t, dt,
-                    chunk_size=self.chunk_size, ssd_dispatch="triton",
-                )
-            except (ImportError, ValueError) as exc:
-                if not self._triton_fallback_warned:
-                    print(
-                        f"[Mamba3Block {self.layer_idx}] ssd_dispatch='triton' "
-                        f"unavailable ({type(exc).__name__}: {exc}); "
-                        f"falling back to 'pytorch' for this block."
-                    )
-                    self._triton_fallback_warned = True
-                y = ssd_complex_chunkwise(
-                    x_ssm, self.A, B_t, C_t, dt, chunk_size=self.chunk_size,
-                )
-        else:
-            y = ssd_complex_chunkwise(
-                x_ssm, self.A, B_t, C_t, dt, chunk_size=self.chunk_size,
-            )
+        y = self._ssd_with_dispatch(x_ssm, B_t, C_t, dt)
 
         y = self.mimo(y)
         y = y.reshape(B, T, H * D)
@@ -116,7 +83,31 @@ class Mamba3Block(nn.Module):
 
         residual = x
         h = self.norm2(x)
-        h = self.ffn(h)
+        h = self._ffn(h)
         x = residual + h
 
         return x
+
+    def _ssd_with_dispatch(self, x_ssm, B_t, C_t, dt):
+        """Single ssd_complex_chunkwise call. If dispatch='triton' and the kernel
+        is unavailable, fall back to 'pytorch' with a one-shot per-block warning."""
+        if self.ssd_dispatch != "triton":
+            return ssd_complex_chunkwise(
+                x_ssm, self.A, B_t, C_t, dt, chunk_size=self.chunk_size,
+            )
+        try:
+            return ssd_complex_chunkwise(
+                x_ssm, self.A, B_t, C_t, dt,
+                chunk_size=self.chunk_size, ssd_dispatch="triton",
+            )
+        except (ImportError, ValueError) as exc:
+            if not self._triton_fallback_warned:
+                print(
+                    f"[Mamba3Block {self.layer_idx}] ssd_dispatch='triton' "
+                    f"unavailable ({type(exc).__name__}: {exc}); "
+                    f"falling back to 'pytorch' for this block."
+                )
+                self._triton_fallback_warned = True
+            return ssd_complex_chunkwise(
+                x_ssm, self.A, B_t, C_t, dt, chunk_size=self.chunk_size,
+            )

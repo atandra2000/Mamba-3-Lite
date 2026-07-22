@@ -22,10 +22,11 @@ The chunkwise linear projection is the regression oracle. To re-verify:
 
 ```python
 import torch
-from models.ssd import ComplexSSDBlock, ModelConfig
+from models.transformer import Mamba3Transformer, ModelConfig
+from models.ssd_complex import ssd_complex_chunkwise, ssd_naive_complex
 
 cfg = ModelConfig()
-m = ComplexSSDBlock(cfg).eval()
+m = Mamba3Transformer(cfg).eval()
 x = torch.randn(2, 128, cfg.d_inner, dtype=torch.complex64)
 y_chunkwise = m(x)
 
