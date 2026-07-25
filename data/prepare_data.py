@@ -1,4 +1,13 @@
-"""Mamba-3-Lite data prep: thin shim over the universal pipeline (GPT-2 BPE, vocab 50,257)."""
+"""Mamba-3-Lite data prep: thin shim over the universal pipeline (GPT-2 BPE, vocab 50,257).
+
+Requires the `shared_data` package. The repo's `data/DATA_PIPELINE.md` says it
+is vendored at `data/shared_data/` or lives in the workspace at `LLM/shared_data/`
+— but this clone ships neither. The E2E test bypasses the shim entirely and
+writes a synthetic uint32 token shard via `torch.save`; see `tests/e2e_gpu_smoke.py`.
+
+To re-enable the full 8.0B-token pipeline, vendor `shared_data` from a sibling
+project or install it from the workspace.
+"""
 import argparse
 import sys
 from pathlib import Path
@@ -8,6 +17,22 @@ import yaml
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _LLM_ROOT = _PROJECT_ROOT.parent.parent  # .../CoreProjects/
+
+
+def _require_shared_data() -> None:
+    """Raise a clean, actionable error if the vendored pipeline is missing."""
+    vendored = _PROJECT_ROOT / "data" / "shared_data"
+    workspace = _LLM_ROOT / "shared_data" if _LLM_ROOT.exists() else None
+    if vendored.exists() or (workspace is not None and workspace.exists()):
+        return
+    raise FileNotFoundError(
+        "Mamba-3-Lite data prep requires the `shared_data` package. "
+        f"Neither {vendored} nor {workspace} was found on this clone. "
+        "Vendor `shared_data/` from a sibling CoreProjects repo, or use a "
+        "pre-tokenized uint32 shard with `PretrainDataset` (see tests/e2e_gpu_smoke.py)."
+    )
+
+
 for _p in (_PROJECT_ROOT, _LLM_ROOT):
     _p = str(_p)
     if _p not in sys.path:
@@ -51,8 +76,10 @@ def _apply_mamba_defaults() -> Path:
 
 
 def main() -> int:
+    _require_shared_data()
+
     parser = argparse.ArgumentParser(
-        description="Mamba-3-Lite data prep (delegates to universal pipeline)",
+        description="Mamba-3-Lite data prep (delegates to universal pipeline)"
     )
     parser.add_argument("--stage", choices=["pretrain"], default="pretrain")
     parser.add_argument("--mixture", default=None)

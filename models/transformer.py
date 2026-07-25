@@ -21,14 +21,14 @@ class ModelConfig:
     head_dim: int = 64
     state_dim: int = 64
     chunk_size: int = 64
-    ssd_dispatch: str = "pytorch"  # 'pytorch' | 'triton' (requires ENABLE_TRITON_KERNELS=1)
+    ssd_dispatch: str = "pytorch"
     ffn_dim: int = 2048
     max_seq_len: int = 2048
     dtype: str = "bf16"
     weight_tying: bool = True
     rms_norm_eps: float = 1e-5
     init_std: float = 0.02
-    grad_checkpoint: bool = False  # injected from TrainingConfig at construction time
+    grad_checkpoint: bool = False
 
 
 class Mamba3Transformer(nn.Module):

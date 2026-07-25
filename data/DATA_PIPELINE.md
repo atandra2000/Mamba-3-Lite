@@ -46,12 +46,15 @@ python3 data/prepare_data.py --stage pretrain \
 
 ## Vendored copy
 
-`data/shared_data/` is a **verbatim copy** of the workspace-level
-`LLM/shared_data/` package. The shim resolves it first (via
-`sys.path.insert(0, <project>/data)`) and falls back to the workspace
-copy if the vendored copy is missing.
+`data/shared_data/` is **not present on this clone**. The shim's
+`_require_shared_data()` guard raises a clean `FileNotFoundError` when
+neither the vendored copy nor the workspace-level `LLM/shared_data/`
+exists. To re-enable the full 8.0B-token pipeline, vendor the package
+from a sibling CoreProjects repo.
 
-**Vendored size:** ~160 KB · 24 source files.
+For E2E testing without the full pipeline, `tests/e2e_gpu_smoke.py`
+writes a synthetic `torch.long` token shard via `torch.save` and
+exercises `PretrainDataset` directly — no `shared_data` dependency.
 
 ## The canonical reference
 
