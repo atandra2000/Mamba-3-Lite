@@ -9,7 +9,6 @@ from training.pretrain import train_step
 
 
 def test_train_step_on_tiny_model():
-    """One optimizer step on a tiny model: loss must be finite, params must change."""
     torch.manual_seed(0)
     model_config = {
         "vocab_size": 64, "d_model": 32, "n_layers": 2, "n_heads": 2,
@@ -19,10 +18,7 @@ def test_train_step_on_tiny_model():
     model = Mamba3Transformer(ModelConfig(**model_config))
     optimizer = AdamW(model.parameters(), lr=1e-3, fused=False)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda s: 1.0)
-
-    # Snapshot params.
     before = [w.detach().clone() for w in model.parameters() if w.requires_grad]
-
     tokens = torch.randint(0, 64, (2, 16))
     targets = torch.randint(0, 64, (2, 16))
     from types import SimpleNamespace
@@ -34,11 +30,7 @@ def test_train_step_on_tiny_model():
         opt_steps=0,
         tokens=tokens, targets=targets, micro_step=0,
     )
-
     assert out is not None, "train_step returned None (NaN guard tripped)"
     assert math.isfinite(out["loss"]), f"non-finite loss: {out['loss']}"
-
-    # After one optimizer step, at least one parameter must have changed.
     after = [w.detach().clone() for w in model.parameters() if w.requires_grad]
-    assert any(not torch.equal(b, a) for b, a in zip(before, after)), \
-        "no parameters changed after train_step"
+    assert any(not torch.equal(b, a) for b, a in zip(before, after)),         "no parameters changed after train_step"
