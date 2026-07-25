@@ -24,7 +24,6 @@ def count_parameters(model: nn.Module) -> Tuple[int, int]:
     return total, trainable
 
 
-
 @dataclass
 class TrainingConfig:
     model_config: dict = field(default_factory=dict)
@@ -52,16 +51,15 @@ class TrainingConfig:
 
 class PretrainDataset(Dataset):
     """Packed pre-training dataset backed by flat token tensors (single-file or sharded)."""
+
     def __init__(self, data_path: str, max_seq_len: int, vocab_size: int):
         self.max_seq_len = max_seq_len
         self.vocab_size = vocab_size
         if not os.path.exists(data_path):
-            # For the purpose of dry-run and validation, we fallback to a dummy implementation if data doesn't exist
             print(f"[warn] Pre-training data not found: {data_path}. Using dummy data for testing.")
             self.layout = "dummy"
             self._n_samples = 1000
             return
-            
         self._init_sharded(data_path) if os.path.isdir(data_path) else self._init_single(data_path)
 
     def _init_single(self, data_path: str) -> None:
@@ -91,7 +89,6 @@ class PretrainDataset(Dataset):
         if offset_in_shard + (self.max_seq_len + 1) <= self.shard_sizes[shard_idx]:
             chunk = self.shards[shard_idx][offset_in_shard: offset_in_shard + self.max_seq_len + 1]
             return chunk[:-1], chunk[1:]
-        
         needed = self.max_seq_len + 1
         collected = []
         cursor = start
@@ -128,11 +125,7 @@ def train_step(
     targets: torch.Tensor,
     micro_step: int,
 ) -> Tuple[Optional[Dict[str, float]], int]:
-    """One forward+backward+optional-step. Returns (metrics_or_None, new_opt_steps).
-
-    Module-level so tests can call it directly without spinning up the full
-    Pretrainer (which has heavy CUDA / torch.compile / logger side effects).
-    """
+    """One forward+backward+optional-step. Module-level so tests can call it directly."""
     is_opt_step = (micro_step + 1) % config.gradient_accumulation_steps == 0
     with amp_context:
         logits = model(tokens)
@@ -159,14 +152,8 @@ def train_step(
 
 
 def _enforce_triton_env_var(model_config: dict, log) -> None:
-    """Force any 'triton' dispatch back to 'pytorch' if ENABLE_TRITON_KERNELS != 1.
-
-    AGENTS rule #6: a default-config run must never silently switch to a
-    Triton path. The per-block dispatch in Mamba3Block has its own one-shot
-    warn-and-fallback for the env-var-set-but-kernel-unavailable case.
-    """
-    if os.environ.get("ENABLE_TRITON_KERNELS", "0") != "1" and \
-            model_config.get("ssd_dispatch") == "triton":
+    """Force triton dispatch back to pytorch if ENABLE_TRITON_KERNELS != 1."""
+    if os.environ.get("ENABLE_TRITON_KERNELS", "0") != "1" and             model_config.get("ssd_dispatch") == "triton":
         log(
             "[warn] ssd_dispatch='triton' requires ENABLE_TRITON_KERNELS=1; "
             "forcing ssd_dispatch='pytorch' for this run."
@@ -176,6 +163,7 @@ def _enforce_triton_env_var(model_config: dict, log) -> None:
 
 class Pretrainer:
     """BF16 pre-training loop for single GPU."""
+
     def __init__(self, config: TrainingConfig):
         self.config = config
         self.device = _DEVICE
@@ -193,14 +181,12 @@ class Pretrainer:
         self._opt_steps = 0
 
         self._log("Initialising model...")
-        # Force-back any 'triton' dispatch to 'pytorch' if the master env-var
-        # is not set. See _enforce_triton_env_var for the full contract.
         _enforce_triton_env_var(config.model_config, self._log)
         config.model_config.setdefault("grad_checkpoint", config.grad_checkpoint)
         raw_model = Mamba3Transformer(config.model_config).to(self.device)
         total, trainable = count_parameters(raw_model)
         self._log(f"Parameters: {total:,} total / {trainable:,} trainable")
-        
+
         training_model = raw_model
         if config.compile_model and hasattr(torch, "compile"):
             compile_mode = os.environ.get("TORCH_COMPILE_MODE", "max-autotune")
@@ -222,7 +208,7 @@ class Pretrainer:
         self.optimizer = AdamW([
             {"params": decay_params, "weight_decay": config.weight_decay},
             {"params": no_decay_params, "weight_decay": 0.0},
-        ], lr=config.lr, betas=(config.beta1, config.beta2), fused=torch.cuda.is_available())
+        ], lr=config.lr, betas=(config.beta1, config.beta2), fused=False)
 
         from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
         warmup = LinearLR(self.optimizer, start_factor=0.01, end_factor=1.0, total_iters=config.warmup_steps)
@@ -273,7 +259,6 @@ class Pretrainer:
     def train(self) -> None:
         dataset = PretrainDataset(self.config.data_path, self.config.max_seq_len, self.config.vocab_size)
         loader = DataLoader(dataset, batch_size=self.config.batch_size, num_workers=0, drop_last=True)
-        # Note: num_workers=0 to prevent multiprocessing issues during dry run.
 
         global_step = 0
         latest = self._find_latest_checkpoint()

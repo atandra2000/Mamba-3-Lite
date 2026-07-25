@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class CheckpointManager:
     """Save/load model checkpoints. Files: model_step_N.safetensors, optim_step_N.pt, meta_step_N.json."""
+
     def __init__(self, save_dir: str):
         self.save_dir = Path(save_dir)
         self.save_dir.mkdir(parents=True, exist_ok=True)
@@ -17,7 +18,6 @@ class CheckpointManager:
     def save(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer, step: int,
              extra_meta: Optional[dict] = None, state_dict: Optional[dict] = None) -> None:
         state = state_dict if state_dict is not None else model.state_dict()
-        # ponytail: dedup shared tensors (tied weights) before safetensors write — safetensors rejects dup data_ptrs.
         seen_ptrs: set = set()
         deduped: dict = {}
         for k, v in state.items():

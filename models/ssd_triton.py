@@ -1,11 +1,12 @@
-"""Fused Triton kernel for the per-chunk compute in the complex SSD.
+"""Fused Triton kernel for the per-chunk complex SSD compute.
 
-Fuses `L`, `Y_diag`, and per-chunk `state` into a single per-(B, n_chunks, H)
-program; accumulators in fp32, state in complex64, matches the PyTorch
-reference to atol=1e-3 (fp32) / 1e-2 (bf16). Backward is a re-compute stub.
+Fuses L, Y_diag, and per-chunk state into a single per-(B, n_chunks, H) program.
+Triton ≥ 3.x has no native complex64 pointer dtype; the parent splits each
+complex tensor into contiguous float32 real/imag pairs for the kernel.
 """
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import torch
@@ -21,9 +22,7 @@ try:
 except ImportError:
     HAS_TRITON = False
 
-
-# 256-cap on the constexpr block sizes. Larger dims surface a clean
-# ValueError; the parent dispatcher auto-falls-back to the pytorch path.
+# 256-cap on constexpr block sizes; larger dims surface a clean ValueError.
 _MAX_BLOCK = 256
 
 
@@ -33,15 +32,15 @@ def per_chunk_ssd_pytorch(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Pure-PyTorch reference for the per-chunk kernel.
 
-    Returns (Y_diag, state); layouts match the production `Ac` from
-    `ssd_complex_chunkwise` before the kernel call.
+    A_log is (B, n_chunks, C, H). L = exp(cumsum(A_log)[l] - cumsum(A_log)[s])
+    matches the chunkwise linear-projection formula in ssd_complex_chunkwise.
     """
     C = Bc.shape[2]
-    causal = torch.tril(
-        torch.ones(C, C, device=Bc.device, dtype=torch.bool)
-    )
-    A_log_h = A_log.permute(0, 1, 3, 2)  # (B, c, H, C) for the L index
-    L = torch.exp(A_log_h.unsqueeze(-1) - A_log_h.unsqueeze(-2)) * causal
+    causal = torch.tril(torch.ones(C, C, device=Bc.device, dtype=torch.bool))
+    A_log_h = A_log.permute(0, 1, 3, 2)
+    A_cs = A_log_h.cumsum(dim=-1)
+    seg = A_cs.unsqueeze(-1) - A_cs.unsqueeze(-2)
+    L = torch.exp(seg) * causal
     Y_diag = torch.einsum("bclhn,bcshn,bchls,bcshp->bclhp", Cc, Bc, L, Xc)
     state = torch.einsum("bclhn,bclh,bclhp->bchpn", Bc, decay_states, Xc)
     return Y_diag, state
@@ -51,16 +50,13 @@ if HAS_TRITON:
 
     @triton.jit
     def _ssd_per_chunk_fwd_kernel(
-        bc_ptr, cc_ptr, xc_ptr, alog_ptr, dst_ptr,
-        y_diag_ptr, state_ptr,
+        bc_re_ptr, bc_im_ptr, cc_re_ptr, cc_im_ptr, xc_re_ptr, xc_im_ptr,
+        alog_re_ptr, alog_im_ptr, dst_re_ptr, dst_im_ptr,
+        y_re_ptr, y_im_ptr, st_re_ptr, st_im_ptr,
         n_chunks, H, T_padded,
         BLOCK_C: tl.constexpr, BLOCK_P: tl.constexpr, BLOCK_N: tl.constexpr,
     ):
-        """One program per (B, c, H). Reads chunk data, writes Y_diag and state.
-
-        Inputs (per chunk): Bc, Cc, Xc each (C, N) or (C, P); A_log, decay_states (C,).
-        Outputs: Y_diag (C, P), state (P, N). All complex.
-        """
+        """One program per (B, c, H). Reads chunk data, writes Y_diag and state."""
         b_idx = tl.program_id(0)
         c_idx = tl.program_id(1)
         h_idx = tl.program_id(2)
@@ -70,53 +66,93 @@ if HAS_TRITON:
         n_off = tl.arange(0, BLOCK_N)
         t_base = c_idx * BLOCK_C
 
-        bc = tl.load(
-            bc_ptr + b_idx * n_chunks * BLOCK_C * H * BLOCK_N
+        bc_base = (
+            b_idx * n_chunks * BLOCK_C * H * BLOCK_N
             + c_idx * BLOCK_C * H * BLOCK_N
-            + c_off[:, None] * H * BLOCK_N + h_idx * BLOCK_N + n_off[None, :]
+            + c_off[:, None] * (H * BLOCK_N) + h_idx * BLOCK_N + n_off[None, :]
         )
-        cc = tl.load(
-            cc_ptr + b_idx * n_chunks * BLOCK_C * H * BLOCK_N
+        bc_re = tl.load(bc_re_ptr + bc_base)
+        bc_im = tl.load(bc_im_ptr + bc_base)
+
+        cc_base = (
+            b_idx * n_chunks * BLOCK_C * H * BLOCK_N
             + c_idx * BLOCK_C * H * BLOCK_N
-            + c_off[:, None] * H * BLOCK_N + h_idx * BLOCK_N + n_off[None, :]
+            + c_off[:, None] * (H * BLOCK_N) + h_idx * BLOCK_N + n_off[None, :]
         )
-        xc = tl.load(
-            xc_ptr + b_idx * n_chunks * BLOCK_C * H * BLOCK_P
+        cc_re = tl.load(cc_re_ptr + cc_base)
+        cc_im = tl.load(cc_im_ptr + cc_base)
+
+        xc_base = (
+            b_idx * n_chunks * BLOCK_C * H * BLOCK_P
             + c_idx * BLOCK_C * H * BLOCK_P
-            + c_off[:, None] * H * BLOCK_P + h_idx * BLOCK_P + p_off[None, :]
+            + c_off[:, None] * (H * BLOCK_P) + h_idx * BLOCK_P + p_off[None, :]
         )
-        a_log = tl.load(
-            alog_ptr + b_idx * T_padded * H
+        xc_re = tl.load(xc_re_ptr + xc_base)
+        xc_im = tl.load(xc_im_ptr + xc_base)
+
+        a_base = (
+            b_idx * T_padded * H
             + (t_base + c_off) * H + h_idx
         )
-        d_st = tl.load(
-            dst_ptr + b_idx * n_chunks * BLOCK_C * H
-            + c_idx * BLOCK_C * H + c_off * H + h_idx
+        a_re = tl.load(alog_re_ptr + a_base)
+        a_im = tl.load(alog_im_ptr + a_base)
+        d_re = tl.load(dst_re_ptr + a_base)
+        d_im = tl.load(dst_im_ptr + a_base)
+
+        # L = exp(cumsum(A_log)[l] - cumsum(A_log)[s]) * (l >= s)
+        a_re_cs = tl.cumsum(a_re, axis=0)
+        a_im_cs = tl.cumsum(a_im, axis=0)
+        seg_re = a_re_cs[:, None] - a_re_cs[None, :]
+        seg_im = a_im_cs[:, None] - a_im_cs[None, :]
+        causal = (c_off[:, None] >= c_off[None, :])
+        L_re = tl.where(causal, tl.exp(seg_re) * tl.cos(seg_im), 0.0)
+        L_im = tl.where(causal, tl.exp(seg_re) * tl.sin(seg_im), 0.0)
+
+        # Cb = Cc @ Bc.T in real arithmetic: Cb.re = Cc.re @ Bc.re.T - Cc.im @ Bc.im.T
+        # Bc.T[n, l] = Bc[l, n] = ptr[l*N + n]; load as (N, C) block with row=n, col=l
+        bc_t_base = (
+            b_idx * n_chunks * BLOCK_C * H * BLOCK_N
+            + c_idx * BLOCK_C * H * BLOCK_N
+            + c_off[None, :] * (H * BLOCK_N) + h_idx * BLOCK_N + n_off[:, None]
         )
+        bc_t_re = tl.load(bc_re_ptr + bc_t_base)
+        bc_t_im = tl.load(bc_im_ptr + bc_t_base)
+        Cb_re = tl.dot(cc_re, bc_t_re) - tl.dot(cc_im, bc_t_im)
+        Cb_im = tl.dot(cc_re, bc_t_im) + tl.dot(cc_im, bc_t_re)
 
-        a_cs = tl.cumsum(a_log, axis=0)
-        seg = a_cs[:, None] - a_cs[None, :]
-        causal = (c_off[:, None] >= c_off[None, :]).to(tl.int1)
-        L = tl.where(causal, tl.exp(seg), 0.0)
+        M_re = L_re * Cb_re - L_im * Cb_im
+        M_im = L_re * Cb_im + L_im * Cb_re
 
-        Cb = tl.dot(cc, bc.trans())
-        Y_diag = tl.dot(L * Cb, xc)
+        Y_re = tl.dot(M_re, xc_re) - tl.dot(M_im, xc_im)
+        Y_im = tl.dot(M_re, xc_im) + tl.dot(M_im, xc_re)
 
-        w = d_st[:, None] * bc
-        state = tl.dot(xc.trans(), w)
-
-        tl.store(
-            y_diag_ptr + b_idx * n_chunks * BLOCK_C * H * BLOCK_P
+        # state = Xc.T @ (decay_states * Bc) — Xc.T[p, l] = Xc[l, p] = ptr[l*P + p]
+        w_re = d_re[:, None] * bc_re - d_im[:, None] * bc_im
+        w_im = d_re[:, None] * bc_im + d_im[:, None] * bc_re
+        xc_t_base = (
+            b_idx * n_chunks * BLOCK_C * H * BLOCK_P
             + c_idx * BLOCK_C * H * BLOCK_P
-            + c_off[:, None] * H * BLOCK_P + h_idx * BLOCK_P + p_off[None, :],
-            Y_diag,
+            + c_off[None, :] * (H * BLOCK_P) + h_idx * BLOCK_P + p_off[:, None]
         )
-        tl.store(
-            state_ptr + b_idx * n_chunks * H * BLOCK_P * BLOCK_N
+        xc_t_re = tl.load(xc_re_ptr + xc_t_base)
+        xc_t_im = tl.load(xc_im_ptr + xc_t_base)
+        st_re = tl.dot(xc_t_re, w_re) - tl.dot(xc_t_im, w_im)
+        st_im = tl.dot(xc_t_re, w_im) + tl.dot(xc_t_im, w_re)
+
+        y_base = (
+            b_idx * n_chunks * BLOCK_C * H * BLOCK_P
+            + c_idx * BLOCK_C * H * BLOCK_P
+            + c_off[:, None] * (H * BLOCK_P) + h_idx * BLOCK_P + p_off[None, :]
+        )
+        tl.store(y_re_ptr + y_base, Y_re)
+        tl.store(y_im_ptr + y_base, Y_im)
+        st_base = (
+            b_idx * n_chunks * H * BLOCK_P * BLOCK_N
             + c_idx * H * BLOCK_P * BLOCK_N
-            + h_idx * BLOCK_P * BLOCK_N + p_off[:, None] * BLOCK_N + n_off[None, :],
-            state,
+            + h_idx * BLOCK_P * BLOCK_N + p_off[:, None] * BLOCK_N + n_off[None, :]
         )
+        tl.store(st_re_ptr + st_base, st_re)
+        tl.store(st_im_ptr + st_base, st_im)
 
 
 def _check_block_dims(P: int, N: int, chunk_size: int) -> None:
@@ -128,6 +164,20 @@ def _check_block_dims(P: int, N: int, chunk_size: int) -> None:
             )
 
 
+def _view_real_imag(z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Split complex64 into two contiguous float32 tensors for the Triton kernel.
+
+    view_as_real gives stride-2 on the inner dim; contiguous() copies to stride-1.
+    """
+    if z.dtype != torch.complex64:
+        raise TypeError(
+            f"per_chunk_ssd_triton: expected complex64, got {z.dtype}. "
+            f"This kernel is specialised for the Mamba-3 complex SSD layout."
+        )
+    pair = torch.view_as_real(z.contiguous())
+    return pair[..., 0].contiguous(), pair[..., 1].contiguous()
+
+
 def _per_chunk_ssd_triton_forward(
     Bc: torch.Tensor, Cc: torch.Tensor, Xc: torch.Tensor,
     A_log: torch.Tensor, decay_states: torch.Tensor,
@@ -136,20 +186,31 @@ def _per_chunk_ssd_triton_forward(
     P = Xc.shape[-1]
     _check_block_dims(P, N, C)
 
-    Y_diag = torch.empty(
-        (B, n_chunks, C, H, P), dtype=torch.complex64, device=Bc.device,
-    )
-    state = torch.empty(
-        (B, n_chunks, H, P, N), dtype=torch.complex64, device=Bc.device,
-    )
+    Y_re = torch.empty((B, n_chunks, C, H, P), dtype=torch.float32, device=Bc.device)
+    Y_im = torch.empty((B, n_chunks, C, H, P), dtype=torch.float32, device=Bc.device)
+    S_re = torch.empty((B, n_chunks, H, P, N), dtype=torch.float32, device=Bc.device)
+    S_im = torch.empty((B, n_chunks, H, P, N), dtype=torch.float32, device=Bc.device)
+
+    Bc_re, Bc_im = _view_real_imag(Bc)
+    Cc_re, Cc_im = _view_real_imag(Cc)
+    Xc_re, Xc_im = _view_real_imag(Xc)
+    A_log_re, A_log_im = _view_real_imag(A_log)
+    dst_re, dst_im = _view_real_imag(decay_states)
 
     T_padded = n_chunks * C
+    num_stages = int(os.environ.get("TRITON_PER_CHUNK_NUM_STAGES", "1"))
+    num_warps = int(os.environ.get("TRITON_PER_CHUNK_NUM_WARPS", "4"))
     _ssd_per_chunk_fwd_kernel[(B, n_chunks, H)](
-        Bc, Cc, Xc, A_log, decay_states, Y_diag, state,
+        Bc_re, Bc_im, Cc_re, Cc_im, Xc_re, Xc_im,
+        A_log_re, A_log_im, dst_re, dst_im,
+        Y_re, Y_im, S_re, S_im,
         n_chunks, H, T_padded,
         BLOCK_C=C, BLOCK_P=P, BLOCK_N=N,
-        num_warps=4, num_stages=2,
+        num_warps=num_warps, num_stages=num_stages,
     )
+
+    Y_diag = torch.complex(Y_re, Y_im)
+    state = torch.complex(S_re, S_im)
     return Y_diag, state
 
 
@@ -158,9 +219,7 @@ class _PerChunkSSDTriton(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, Bc, Cc, Xc, A_log, decay_states, B_t, C_t, A, dt, chunk_size):
-        Y_diag, state = _per_chunk_ssd_triton_forward(
-            Bc, Cc, Xc, A_log, decay_states,
-        )
+        Y_diag, state = _per_chunk_ssd_triton_forward(Bc, Cc, Xc, A_log, decay_states)
         ctx.save_for_backward(B_t, C_t, A, dt)
         ctx.chunk_size = chunk_size
         return Y_diag, state
@@ -178,9 +237,8 @@ class _PerChunkSSDTriton(torch.autograd.Function):
             B_, T, H, _ = B_t.shape
             x_dummy = torch.zeros(B_, T, H, 1, dtype=torch.complex64, device=B_t.device)
             y = ssd_complex_chunkwise(x_dummy, a, b, c, d, chunk_size=chunk_size)
-        grads = torch.autograd.grad(y, [b, c, a, d], allow_unused=True)
-        # Forward inputs in order: Bc, Cc, Xc, A_log, decay_states, B_t, C_t, A, dt, chunk_size.
-        # Bc/Cc/Xc/A_log/decay_states are recomputed from B_t/C_t/A/dt, no grads in v1.
+            scalar_loss = y.sum()
+        grads = torch.autograd.grad(scalar_loss, [b, c, a, d], allow_unused=True)
         return None, None, None, None, None, *grads, None
 
 
@@ -190,10 +248,7 @@ def per_chunk_ssd_triton(
     B_t: torch.Tensor, C_t: torch.Tensor, A: torch.Tensor, dt: torch.Tensor,
     chunk_size: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Public entry point. Returns (Y_diag, state) for the per-chunk pass.
-
-    Raises ImportError if triton is missing; ValueError if P/N/C > 256.
-    """
+    """Public entry point. Returns (Y_diag, state) for the per-chunk pass."""
     if not HAS_TRITON:
         raise ImportError(
             "per_chunk_ssd_triton requires the `triton` package. "

@@ -31,11 +31,10 @@ class Mamba3Block(nn.Module):
         self.out_proj = nn.Linear(self.n_heads * self.head_dim, self.d_model, bias=False)
 
         self.A = nn.Parameter(torch.empty(self.n_heads, dtype=torch.complex64))
-        nn.init.constant_(self.A, -1.0)  # Mamba-3 SSM eigenvalue init (real part = -1, imag = 0).
+        nn.init.constant_(self.A, -1.0)
 
         self.norm1 = nn.RMSNorm(self.d_model, eps=self.rms_norm_eps)
         self.norm2 = nn.RMSNorm(self.d_model, eps=self.rms_norm_eps)
-        # SwiGLU FFN: fused gate+up matmul -> silu(gate)*up -> down.
         ffn_dim = cfg["ffn_dim"]
         self.ffn_gate_up = nn.Linear(self.d_model, 2 * ffn_dim, bias=False)
         self.ffn_down = nn.Linear(ffn_dim, self.d_model, bias=False)
@@ -53,7 +52,6 @@ class Mamba3Block(nn.Module):
         return self._forward_impl(x)
 
     def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
-        """(B, T, d_model) -> (B, T, d_model)."""
         B, T, _ = x.shape
         H, D, N = self.n_heads, self.head_dim, self.state_dim
 
@@ -61,18 +59,17 @@ class Mamba3Block(nn.Module):
         h = self.norm1(x)
 
         proj = self.in_proj(h)
-        x_ssm = proj[..., :H * D].reshape(B, T, H, D)
+        x_ssm = proj[..., :H * D].reshape(B, T, H, D).float()
 
-        # B and C are complex, each needs 2 * N real params. Total 4 * N real params.
-        B_real = proj[..., H * D:H * D + H * N]
-        B_imag = proj[..., H * D + H * N:H * D + 2 * H * N]
+        B_real = proj[..., H * D:H * D + H * N].float()
+        B_imag = proj[..., H * D + H * N:H * D + 2 * H * N].float()
         B_t = torch.complex(B_real, B_imag).reshape(B, T, H, N)
 
-        C_real = proj[..., H * D + 2 * H * N:H * D + 3 * H * N]
-        C_imag = proj[..., H * D + 3 * H * N:H * D + 4 * H * N]
+        C_real = proj[..., H * D + 2 * H * N:H * D + 3 * H * N].float()
+        C_imag = proj[..., H * D + 3 * H * N:H * D + 4 * H * N].float()
         C_t = torch.complex(C_real, C_imag).reshape(B, T, H, N)
 
-        dt = proj[..., -H:]
+        dt = proj[..., -H:].float()
 
         y = self._ssd_with_dispatch(x_ssm, B_t, C_t, dt)
 
@@ -89,8 +86,7 @@ class Mamba3Block(nn.Module):
         return x
 
     def _ssd_with_dispatch(self, x_ssm, B_t, C_t, dt):
-        """Single ssd_complex_chunkwise call. If dispatch='triton' and the kernel
-        is unavailable, fall back to 'pytorch' with a one-shot per-block warning."""
+        """ssd_complex_chunkwise with optional triton dispatch and fallback."""
         if self.ssd_dispatch != "triton":
             return ssd_complex_chunkwise(
                 x_ssm, self.A, B_t, C_t, dt, chunk_size=self.chunk_size,
@@ -100,7 +96,7 @@ class Mamba3Block(nn.Module):
                 x_ssm, self.A, B_t, C_t, dt,
                 chunk_size=self.chunk_size, ssd_dispatch="triton",
             )
-        except (ImportError, ValueError) as exc:
+        except (ImportError, ValueError, RuntimeError, Exception) as exc:
             if not self._triton_fallback_warned:
                 print(
                     f"[Mamba3Block {self.layer_idx}] ssd_dispatch='triton' "

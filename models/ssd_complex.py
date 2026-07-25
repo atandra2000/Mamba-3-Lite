@@ -6,7 +6,6 @@ import torch.nn.functional as F
 
 
 def _discretise(dt: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
-    """A_bar = exp(softplus(dt) * A)."""
     return torch.exp(F.softplus(dt) * A)
 
 
@@ -20,8 +19,7 @@ def ssd_naive_complex(
     s = torch.zeros(B_, H, N, D, dtype=torch.complex64, device=x.device)
     ys = []
     for t in range(T):
-        s = A_bar[:, t].unsqueeze(-1).unsqueeze(-1) * s \
-            + B_t[:, t].unsqueeze(-1) * x[:, t].unsqueeze(-2)
+        s = A_bar[:, t].unsqueeze(-1).unsqueeze(-1) * s             + B_t[:, t].unsqueeze(-1) * x[:, t].unsqueeze(-2)
         ys.append((C_t[:, t].unsqueeze(-1) * s).sum(dim=-2))
     return torch.stack(ys, dim=1)
 
@@ -33,16 +31,11 @@ def ssd_complex_chunkwise(
 ) -> torch.Tensor:
     """Complex chunkwise SSD.
 
-    `ssd_dispatch='pytorch'`: the original 5-einsum PyTorch chain.
-    `ssd_dispatch='triton'`: the per-chunk `Y_diag` and `state` passes are
-    fused into a single Triton kernel via `per_chunk_ssd_triton`; the
-    inter-chunk state propagation and the final `Y_off` application stay
-    in PyTorch. Opt-in requires `ENABLE_TRITON_KERNELS=1` (enforced at
-    the `Pretrainer` level); a kernel failure auto-falls back with a
-    one-shot warning.
+    ssd_dispatch='pytorch': the original 5-einsum PyTorch chain.
+    ssd_dispatch='triton': per-chunk Y_diag and state fused into a single
+    Triton kernel; inter-chunk state propagation stays in PyTorch.
     """
     B_, T, H, D = x.shape
-    # A is complex, B_t is complex, C_t is complex, x is real
     N, C = B_t.shape[-1], chunk_size
 
     pad = (C - (T % C)) % C
@@ -55,7 +48,7 @@ def ssd_complex_chunkwise(
     T_padded = T + pad
     n_chunks = T_padded // C
 
-    A_log = F.softplus(dt) * A  # (B, T_padded, H)
+    A_log = F.softplus(dt) * A
 
     def _chunk(t):
         return t.reshape(B_, n_chunks, C, *t.shape[2:])
@@ -98,4 +91,3 @@ def ssd_complex_chunkwise(
     Y = Y_diag + Y_off
     Y = Y.real
     return Y.reshape(B_, T_padded, H, D)[:, :T, :, :]
-
