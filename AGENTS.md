@@ -42,9 +42,7 @@ in Mamba-3?", "Tune chunk_size for throughput."
   - `models/ssd_triton.py` → `per_chunk_ssd_triton` (fused per-chunk
     pass for the complex-SSD chunkwise recurrence; fuses `L` materialisation,
     `Y_diag`, and per-chunk `state` into a single Triton kernel; opt-in
-    via `ssd_dispatch='triton'` + `ENABLE_TRITON_KERNELS=1`; see
-    `documentation/ssd_triton.md` for design, the A100-box verification
-    checklist, and the v2 backward plan).
+    via `ssd_dispatch='triton'` + `ENABLE_TRITON_KERNELS=1`).
 - When a kernel is added: place it in `models/<name>_triton.py`, gate
   on `import triton` with `try/except ImportError` setting
   `HAS_TRITON = False`, wrap in a `torch.autograd.Function`, add
@@ -74,7 +72,7 @@ in Mamba-3?", "Tune chunk_size for throughput."
    questions — it is the authoritative reference (covers complex
    recurrence, MIMO mixer, and chunkwise projection).
 3. **Always** verify the regression tests pass after any change to
-   `models/ssd.py` — the chunkwise linear projection must match the
+   `models/ssd_complex.py` — the chunkwise linear projection must match the
    naive O(T) scan oracle exactly.
 4. **Never** pack a state size that doesn't decompose cleanly into real
    pairs (N must be even for complex packing to be exact).
@@ -114,8 +112,11 @@ in Mamba-3?", "Tune chunk_size for throughput."
 
 ## 4. Files
 
-- `models/ssd.py` — complex SSD block + MIMO mixer + chunkwise projection.
-- `training/`, `inference/`, `data/`, `scripts/`, `tests/`, `documentation/`.
+- `models/ssd_complex.py` — complex SSD block + MIMO mixer + chunkwise projection.
+- `models/ssd_triton.py` — sanctioned Triton kernel (`per_chunk_ssd_triton`).
+- `models/mamba_block.py` — residual block (RMSNorm → SSD → MIMO → SwiGLU).
+- `models/transformer.py` — `Mamba3Transformer` + `ModelConfig`.
+- `training/`, `data/`, `scripts/`, `tests/`, `utils/`.
 - `SSD.md` — authoritative algorithm reference.
 - `README.md`, `requirements.txt`, `pytest.ini`, `LICENSE`.
 

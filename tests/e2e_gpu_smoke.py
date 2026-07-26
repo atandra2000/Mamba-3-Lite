@@ -34,7 +34,7 @@ def _tiny_cfg(ssd_dispatch: str = "pytorch") -> ModelConfig:
     return ModelConfig(
         vocab_size=128, d_model=64, n_layers=2, n_heads=4,
         head_dim=16, state_dim=16, chunk_size=16, ffn_dim=128,
-        max_seq_len=32, dtype="fp32", weight_tying=True,
+        max_seq_len=32, weight_tying=True,
         ssd_dispatch=ssd_dispatch,
     )
 
@@ -275,7 +275,7 @@ def check_pretrainer_dry_run(device: torch.device):
             model_config=dict(
                 vocab_size=128, d_model=64, n_layers=2, n_heads=4,
                 head_dim=16, state_dim=16, chunk_size=16, ffn_dim=128,
-                max_seq_len=32, dtype="fp32", weight_tying=True,
+                max_seq_len=32, weight_tying=True,
                 ssd_dispatch="triton", grad_checkpoint=False,
             ),
             data_path=str(shard_path),

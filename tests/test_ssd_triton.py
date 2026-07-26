@@ -112,7 +112,7 @@ class TestPerChunkSsdDispatchWiring:
         cfg = ModelConfig(
             vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=8,
             state_dim=4, chunk_size=4, ffn_dim=64, max_seq_len=16,
-            dtype="fp32", weight_tying=True, ssd_dispatch="pytorch",
+            weight_tying=True, ssd_dispatch="pytorch",
         )
         m = Mamba3Transformer(cfg)
         for block in m.layers:
@@ -126,7 +126,7 @@ class TestPerChunkSsdDispatchWiring:
         cfg = ModelConfig(
             vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=8,
             state_dim=4, chunk_size=4, ffn_dim=64, max_seq_len=16,
-            dtype="fp32", weight_tying=True, ssd_dispatch="triton",
+            weight_tying=True, ssd_dispatch="triton",
         )
         m = Mamba3Transformer(cfg)
         block = m.layers[0]
@@ -147,7 +147,7 @@ class TestPerChunkSsdDispatchWiring:
         cfg = ModelConfig(
             vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=8,
             state_dim=4, chunk_size=4, ffn_dim=64, max_seq_len=16,
-            dtype="fp32", weight_tying=True, ssd_dispatch="triton",
+            weight_tying=True, ssd_dispatch="triton",
         )
         m = Mamba3Transformer(cfg)
         x = torch.randint(0, 64, (1, 8))
@@ -162,7 +162,7 @@ class TestPerChunkSsdDispatchWiring:
         base_cfg = dict(
             vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=8,
             state_dim=4, chunk_size=4, ffn_dim=64, max_seq_len=16,
-            dtype="fp32", weight_tying=True,
+            weight_tying=True,
         )
         torch.manual_seed(42)
         m_p = Mamba3Transformer(ModelConfig(**base_cfg, ssd_dispatch="pytorch"))

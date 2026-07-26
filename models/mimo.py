@@ -8,7 +8,7 @@ import torch.nn as nn
 class MIMO(nn.Module):
     """MIMO mixing layer across heads."""
 
-    def __init__(self, d_model: int, n_heads: int, head_dim: int):
+    def __init__(self, n_heads: int, head_dim: int):
         super().__init__()
         self.n_heads = n_heads
         self.head_dim = head_dim

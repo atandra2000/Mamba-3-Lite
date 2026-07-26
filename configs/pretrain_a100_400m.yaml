@@ -22,7 +22,6 @@ model:
   chunk_size:          64             # SSD chunk size (the tunable knob)
   ffn_dim:             2048           # SwiGLU intermediate (NOT 4096)
   max_seq_len:         2048
-  dtype:               bf16
   weight_tying:        true
   rms_norm_eps:        1.0e-5
   init_std:            0.02

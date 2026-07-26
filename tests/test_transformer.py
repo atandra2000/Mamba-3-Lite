@@ -8,7 +8,7 @@ def test_mamba3_transformer_forward():
     cfg = ModelConfig(
         vocab_size=100, d_model=64, n_layers=2, n_heads=4,
         head_dim=16, state_dim=8, chunk_size=4, ffn_dim=128,
-        max_seq_len=32, dtype="fp32", weight_tying=True,
+        max_seq_len=32, weight_tying=True,
     )
     m = Mamba3Transformer(cfg)
     x = torch.randint(0, 100, (2, 16))
@@ -23,7 +23,7 @@ def test_mamba3_transformer_accepts_dict_config():
     cfg_dict = {
         "vocab_size": 50, "d_model": 32, "n_layers": 2, "n_heads": 2,
         "head_dim": 16, "state_dim": 4, "chunk_size": 4,
-        "ffn_dim": 64, "max_seq_len": 16, "dtype": "fp32", "weight_tying": True,
+        "ffn_dim": 64, "max_seq_len": 16, "weight_tying": True,
     }
     m = Mamba3Transformer(cfg_dict)
     x = torch.randint(0, 50, (2, 8))

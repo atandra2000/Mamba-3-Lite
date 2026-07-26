@@ -7,7 +7,7 @@ from training.pretrain import TrainingConfig
 _BASE = {
     "vocab_size": 64, "d_model": 32, "n_layers": 2, "n_heads": 2,
     "head_dim": 16, "state_dim": 4, "chunk_size": 4,
-    "ffn_dim": 64, "max_seq_len": 16, "dtype": "fp32", "weight_tying": True,
+    "ffn_dim": 64, "max_seq_len": 16, "weight_tying": True,
 }
 
 

@@ -101,7 +101,6 @@ The canonical config is [`configs/pretrain_a100_400m.yaml`](configs/pretrain_a10
 | `chunk_size` | 64 (SSD tunable) |
 | `ffn_dim` | 2,048 (SwiGLU intermediate) |
 | `max_seq_len` | 2,048 |
-| `dtype` | BF16 (FP32 internal accumulation) |
 | `weight_tying` | true |
 | `init_std` | 0.02 |
 | **Total params** | **~404M** |
@@ -301,7 +300,7 @@ import torch
 from models.transformer import Mamba3Transformer, ModelConfig
 cfg = ModelConfig(vocab_size=100, d_model=64, n_layers=2, n_heads=4,
                   head_dim=16, state_dim=8, chunk_size=4, ffn_dim=128,
-                  max_seq_len=32, dtype='fp32', weight_tying=True)
+                  max_seq_len=32, weight_tying=True)
 m = Mamba3Transformer(cfg)
 x = torch.randint(0, 100, (2, 16))
 y = m(x)

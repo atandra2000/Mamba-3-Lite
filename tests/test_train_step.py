@@ -13,7 +13,7 @@ def test_train_step_on_tiny_model():
     model_config = {
         "vocab_size": 64, "d_model": 32, "n_layers": 2, "n_heads": 2,
         "head_dim": 16, "state_dim": 4, "chunk_size": 4,
-        "ffn_dim": 64, "max_seq_len": 16, "dtype": "fp32", "weight_tying": True,
+        "ffn_dim": 64, "max_seq_len": 16, "weight_tying": True,
     }
     model = Mamba3Transformer(ModelConfig(**model_config))
     optimizer = AdamW(model.parameters(), lr=1e-3, fused=False)

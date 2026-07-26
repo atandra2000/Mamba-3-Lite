@@ -5,7 +5,7 @@ from models.mimo import MIMO
 
 
 def test_mimo_identity_init():
-    m = MIMO(d_model=128, n_heads=4, head_dim=32)
+    m = MIMO(n_heads=4, head_dim=32)
     m.eval()
     x = torch.randn(2, 8, 4, 32)
     y = m(x)
@@ -15,7 +15,7 @@ def test_mimo_identity_init():
 
 def test_mimo_shape_and_finite():
     torch.manual_seed(0)
-    m = MIMO(d_model=128, n_heads=4, head_dim=32)
+    m = MIMO(n_heads=4, head_dim=32)
     m.train()
     x = torch.randn(2, 8, 4, 32)
     y = m(x)

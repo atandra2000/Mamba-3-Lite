@@ -1,13 +1,10 @@
 """Mamba-3 Transformer model."""
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from .mamba_block import Mamba3Block
 
@@ -24,7 +21,6 @@ class ModelConfig:
     ssd_dispatch: str = "pytorch"
     ffn_dim: int = 2048
     max_seq_len: int = 2048
-    dtype: str = "bf16"
     weight_tying: bool = True
     rms_norm_eps: float = 1e-5
     init_std: float = 0.02
@@ -57,9 +53,9 @@ class Mamba3Transformer(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            nn.init.normal_(module.weight, mean=0.0, std=self.cfg.init_std)
         elif isinstance(module, nn.Embedding):
-            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            nn.init.normal_(module.weight, mean=0.0, std=self.cfg.init_std)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """(B, T) -> (B, T, vocab_size)."""

@@ -214,9 +214,6 @@ class Pretrainer:
         warmup = LinearLR(self.optimizer, start_factor=0.01, end_factor=1.0, total_iters=config.warmup_steps)
         cosine = CosineAnnealingLR(self.optimizer, T_max=config.max_steps - config.warmup_steps, eta_min=config.lr * config.min_lr_ratio)
         self.scheduler = SequentialLR(self.optimizer, schedulers=[warmup, cosine], milestones=[config.warmup_steps])
-        self.amp_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float32
-        self.ckpt_manager = CheckpointManager(config.checkpoint_dir)
-        self._opt_steps = 0
 
     @staticmethod
     def _log(msg: str) -> None:
@@ -330,6 +327,8 @@ def main() -> None:
         lr=t.get("lr", 3.0e-4),
         min_lr_ratio=t.get("min_lr_ratio", 0.05),
         weight_decay=t.get("weight_decay", 0.1),
+        beta1=t.get("beta1", 0.9),
+        beta2=t.get("beta2", 0.95),
         max_grad_norm=t.get("grad_clip", 1.0),
         grad_checkpoint=t.get("grad_checkpoint", True) and not args.no_checkpoint,
         compile_model=t.get("compile", True) and not args.no_compile,

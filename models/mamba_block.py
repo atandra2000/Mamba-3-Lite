@@ -27,7 +27,7 @@ class Mamba3Block(nn.Module):
 
         in_dim = self.n_heads * (self.head_dim + 4 * self.state_dim + 1)
         self.in_proj = nn.Linear(self.d_model, in_dim, bias=False)
-        self.mimo = MIMO(self.d_model, self.n_heads, self.head_dim)
+        self.mimo = MIMO(self.n_heads, self.head_dim)
         self.out_proj = nn.Linear(self.n_heads * self.head_dim, self.d_model, bias=False)
 
         self.A = nn.Parameter(torch.empty(self.n_heads, dtype=torch.complex64))
@@ -96,7 +96,7 @@ class Mamba3Block(nn.Module):
                 x_ssm, self.A, B_t, C_t, dt,
                 chunk_size=self.chunk_size, ssd_dispatch="triton",
             )
-        except (ImportError, ValueError, RuntimeError, Exception) as exc:
+        except Exception as exc:
             if not self._triton_fallback_warned:
                 print(
                     f"[Mamba3Block {self.layer_idx}] ssd_dispatch='triton' "
