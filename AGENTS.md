@@ -4,13 +4,13 @@
 > authoritative; this file adds project-specific rules only.
 
 > **Project:** `LLM/Mamba-3-Lite/` · **Type:** State-Space Model (Mamba-3)
-> **Scale:** ~404M params · 8.0B Chinchilla-optimal tokens · 12–15h on A100 80GB
-> **Stack:** PyTorch ≥2.1, no `mamba-ssm`, no custom CUDA, no Triton
-> (see rule #1 below — currently a deliberate purity constraint; the
-> carve-out is in place for future sanctioned kernels).
+> **Scale:** ~434M params · 8.0B Chinchilla-optimal tokens · 12–15h on A100 80GB
+> **Stack:** PyTorch ≥2.1, no `mamba-ssm`, no custom CUDA (see rule #1 —
+> one sanctioned opt-in Triton kernel; everything else stays pure PyTorch).
 > **Hardware:** A100 80GB (no offloading).
-> **Architecture detail:** see `README.md` in this folder and **`SSD.md`**
-> (authoritative complex-SSD walkthrough). Cross-project helper: root
+> **Architecture detail:** see `README.md` in this folder, **`docs/theory/04-chunkwise-algorithm.md`**
+> (authoritative chunkwise-complex-SSD derivation) and the full `docs/` tree
+> (theory/ + reference/ + guides/, see `docs/README.md`). Cross-project helper: root
 > `AGENTS.md §2.13` (`mamba2-ssd-engineer`).
 
 ## 1. Subagent: `mamba2-ssd-engineer` (also covers Mamba-3)
@@ -29,7 +29,7 @@ in Mamba-3?", "Tune chunk_size for throughput."
      across SSM heads replaces the classical SISO constraint.
   3. **Zero causal convolution.** The memory-bound `causal_conv1d` pass is
      eliminated; replaced by a purely chunked linear projection.
-- 28 layers · vocab 50,257 (LLaMA tokenizer) · ~404M params · 8.0B-token
+- 28 layers · vocab 50,257 (GPT-2 BPE tokenizer) · ~434M params · 8.0B-token
   Chinchilla run planned.
 - Training: BF16 + `torch.compile` + TF32. FA2 disabled (we use the
   chunkwise recurrence). NaN guard with checkpoint rollback.
@@ -57,7 +57,7 @@ in Mamba-3?", "Tune chunk_size for throughput."
    PyTorch. No HuggingFace Trainer, no Lightning, no high-level
    wrappers. The sanctioned Triton paths are listed in §1 above. No
    new component gets a custom kernel without updating this file and
-   adding a `documentation/<name>.md` plan.
+   adding a `docs/reference/<name>.md` doc.
    - **Conflict-resolution note:** the previous "no Triton" hard rule
      (rule #5 in earlier versions of this file) is **superseded** by
      this rule. The current project ships one sanctioned Triton path
@@ -68,9 +68,10 @@ in Mamba-3?", "Tune chunk_size for throughput."
      dispatch back to `'pytorch'` with a one-line warning (per-block
      warn-and-fallback in `Mamba3Block`, and a process-level guard in
      `training/pretrain.py:_enforce_triton_env_var`).
-2. **Always** read `SSD.md` before answering complex-SSD algorithm
-   questions — it is the authoritative reference (covers complex
-   recurrence, MIMO mixer, and chunkwise projection).
+2. **Always** read `docs/theory/04-chunkwise-algorithm.md` (and, for
+   context, `docs/theory/01`–`03`) before answering complex-SSD algorithm
+   questions — it is the authoritative derivation (covers the chunkwise
+   projection einsum-by-einsum, the complex recurrence, and MIMO mixer).
 3. **Always** verify the regression tests pass after any change to
    `models/ssd_complex.py` — the chunkwise linear projection must match the
    naive O(T) scan oracle exactly.
@@ -117,7 +118,8 @@ in Mamba-3?", "Tune chunk_size for throughput."
 - `models/mamba_block.py` — residual block (RMSNorm → SSD → MIMO → SwiGLU).
 - `models/transformer.py` — `Mamba3Transformer` + `ModelConfig`.
 - `training/`, `data/`, `scripts/`, `tests/`, `utils/`.
-- `SSD.md` — authoritative algorithm reference.
+- `docs/` — theory/ (concept-building), reference/ (symbol-anchored API), guides/.
+  `docs/README.md` is the doc map. `tests/test_doc_refs.py` is the alignment checker.
 - `README.md`, `requirements.txt`, `pytest.ini`, `LICENSE`.
 
 ## 5. Known caveats
@@ -126,3 +128,12 @@ in Mamba-3?", "Tune chunk_size for throughput."
 - FA2 is disabled — the chunkwise linear projection is used instead.
 - Complex states mean a downstream user can't trivially swap in a
   real-only recurrence without N→2N resize and a re-init.
+
+## 6. Docs rule
+
+**Docs ship with code; stale docs fail CI.** Any change that adds, renames,
+or removes a public symbol must update the docs that cite it. `tests/test_doc_refs.py`
+parses every `file.py:Symbol` anchor in `docs/` and fails on unknown files or
+symbols — run it (and `python3 -m pytest tests/`) before committing doc or
+code changes. New components (e.g. a sanctioned Triton kernel) must add a
+`docs/reference/<name>.md` per the writing contract in `docs/docs_expansion_plan.md`.

@@ -4,7 +4,7 @@
 
 ### A from-scratch PyTorch reproduction of Mamba-3 with complex-valued SSD state spaces
 
-**~404M params · 8.0B Chinchilla-optimal tokens · 12–15 h on a single A100 80GB · N=64 complex64 states**
+**~434M params · 8.0B Chinchilla-optimal tokens · 12–15 h on a single A100 80GB · N=64 complex64 states**
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch 2.1+](https://img.shields.io/badge/PyTorch-2.1%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
@@ -21,7 +21,7 @@
 
 ## 📖 Overview
 
-**Mamba-3-Lite** is a from-scratch PyTorch implementation of the **Mamba-3** architecture (Dao & Gu, 2025) at Chinchilla-optimal scale. It succeeds Mamba-2 with three architectural breakthroughs that are implemented end-to-end in pure PyTorch — **no `mamba-ssm`, no custom CUDA kernels, no Triton**:
+**Mamba-3-Lite** is a from-scratch PyTorch implementation of the **Mamba-3** architecture (Dao & Gu, 2025) at Chinchilla-optimal scale. It succeeds Mamba-2 with three architectural breakthroughs that are implemented end-to-end in pure PyTorch — **no `mamba-ssm`, no custom CUDA kernels** (one sanctioned, opt-in Triton kernel covers the SSD hot path, see [AGENTS.md](AGENTS.md) §1):
 
 1. **Complex-Valued SSD state spaces.** State dimension is **halved** (N=128 → N=64) by promoting the recurrence into the complex plane (`complex64`). Two real sub-states are packed into one complex state, achieving parity perplexity with Mamba-2 at double the state size.
 2. **MIMO (Multi-Input Multi-Output) head mixing.** A fully-connected mixer across SSM heads replaces the classical SISO (single-input single-output) constraint, giving the model cross-head communication for free.
@@ -45,7 +45,7 @@
 
 > **Mamba-3-Lite: 50% smaller complex state (N=64, complex64) achieves parity loss with Mamba-2 at N=128** on the same 8.0B-token Chinchilla run (single A100 80GB, ~10–12 h wall time).
 
-The complex recurrence `h_t = exp((A_real + i·A_imag)·dt) · h_{t-1} + (B_real + i·B_imag)·x_t` packs two real eigenvalues (one decay, one rotation) into a single complex state, doubling the expressive capacity per parameter. Verified by `tests/test_ssd.py::test_ssd_chunk_matches_naive`; the derivation is in [`SSD.md`](SSD.md).
+The complex recurrence `h_t = exp((A_real + i·A_imag)·dt) · h_{t-1} + (B_real + i·B_imag)·x_t` packs two real eigenvalues (one decay, one rotation) into a single complex state, doubling the expressive capacity per parameter. Verified by `tests/test_ssd.py::test_chunkwise_matches_naive_complex`; the derivation is in [`docs/theory/04-chunkwise-algorithm.md`](docs/theory/04-chunkwise-algorithm.md).
 
 ---
 
@@ -58,7 +58,7 @@ Input tokens (vocab = 50,257, GPT-2 BPE)
 Embedding (d_model=1024)              ← weight-tied with output head
     │
     ▼
-28 × Mamba-3 Blocks (gradient checkpointing every 4th):
+28 × Mamba-3 Blocks (gradient checkpointing enabled globally):
     ┌──────────────────────────────────────────────────────────────┐
     │  RMSNorm → in_proj → Chunkwise SSD (complex64)                │
     │         → MIMO mixer → out_proj → Residual                    │
@@ -103,7 +103,7 @@ The canonical config is [`configs/pretrain_a100_400m.yaml`](configs/pretrain_a10
 | `max_seq_len` | 2,048 |
 | `weight_tying` | true |
 | `init_std` | 0.02 |
-| **Total params** | **~404M** |
+| **Total params** | **~434M** |
 
 ### Training
 
@@ -118,10 +118,10 @@ The canonical config is [`configs/pretrain_a100_400m.yaml`](configs/pretrain_a10
 | `weight_decay` | 0.1 |
 | `beta1 / beta2` | 0.9 / 0.95 |
 | `grad_clip` | 1.0 |
-| `grad_checkpoint_every` | 4 |
+| `grad_checkpoint` | true (uniform across all blocks) |
 | `compile_mode` | `max-autotune` |
 | `nan_guard_max_consecutive` | 5 (with checkpoint rollback) |
-| `data_mix` | fineweb-edu 0.6 / fineweb 0.2 / the-stack-python 0.1 / openmath 0.1 |
+| `data_mix` | fineweb-edu 0.50 / fineweb 0.20 / the-stack-python 0.15 / openmath-instruct-2 0.10 / arxiv 0.05 |
 
 ---
 
@@ -141,9 +141,12 @@ pip install -r requirements.txt
 python3 -m pytest tests/ -v
 ```
 
-11 tests cover the complex chunkwise SSD (vs naive scan oracle), MIMO mixer
-identity init, transformer forward, grad-checkpoint wiring, and a one-step
-train on dummy data. Runs in <2s on CPU.
+37 tests cover the complex chunkwise SSD (vs naive scan oracle), MIMO mixer
+identity init (in the class and inside the full model), transformer forward,
+grad-checkpoint wiring, one-step training on dummy data, the Triton kernel
+reference + dispatch guards, an autograd gradcheck of the kernel's backward
+plumbing, and the doc↔code alignment checker. 32 pass on CPU in <3s; 5
+GPU-gated tests skip.
 
 ### 3. Launch a full pretraining run
 
@@ -156,7 +159,7 @@ python3 training/pretrain.py --config configs/pretrain_a100_400m.yaml
 ```bash
 python3 training/pretrain.py \
     --config configs/pretrain_a100_400m.yaml \
-    --resume-from 80000
+    --resume 80000
 ```
 
 ---
@@ -189,7 +192,7 @@ This is **not just "use complex64 tensors"** — it's a genuine representational
 
 The complex exponential `exp(α + iβ) = exp(α)·(cos β + i·sin β)` natively captures both **decay** (α) and **oscillation** (β), which is impossible in real SSMs without doubling the state.
 
-> 📖 **Full math deep-dive:** see [`SSD.md`](SSD.md) for the chunkwise algorithm derivation, the connection to self-attention, and the equivalence proof.
+> 📖 **Full math deep-dive:** see [`docs/theory/04-chunkwise-algorithm.md`](docs/theory/04-chunkwise-algorithm.md) for the chunkwise algorithm derivation, and [`docs/theory/02-state-space-duality.md`](docs/theory/02-state-space-duality.md) for the connection to self-attention.
 
 ---
 
@@ -215,11 +218,15 @@ This repo intentionally avoids:
 
 - ❌ `mamba-ssm` package
 - ❌ `causal_conv1d` package
-- ❌ Custom CUDA / Triton kernels
+- ❌ Custom CUDA kernels
 - ❌ HuggingFace Trainer / PyTorch Lightning
 - ❌ Pickle checkpoints (uses `safetensors` + atomic writes)
 
-Everything is **pure PyTorch** (`torch.*matmul`, `torch.*einsum`, `torch.*fft` where applicable). This makes the code:
+The single sanctioned exception: the opt-in `per_chunk_ssd_triton` kernel
+(`models/ssd_triton.py`, gated behind `ssd_dispatch='triton'` +
+`ENABLE_TRITON_KERNELS=1` — see AGENTS.md §1). Everything else is
+**pure PyTorch** (`torch.*matmul`, `torch.*einsum`, `torch.*fft` where
+applicable). This makes the code:
 
 - **Auditable** — every line is plain tensor ops.
 - **Hardware-portable** — runs on CPU, MPS, CUDA, AMD ROCm, TPU.
@@ -234,46 +241,36 @@ Mamba-3-Lite/
 ├── configs/
 │   └── pretrain_a100_400m.yaml
 ├── models/
-│   ├── ssd.py                          # real SSD reference (test oracle)
 │   ├── ssd_complex.py                  # ★ complex-valued chunkwise SSD
-│   ├── mimo.py                         # ★ inter-head mixer
+│   ├── ssd_triton.py                   # ★ sanctioned fused Triton kernel (opt-in)
+│   ├── mimo.py                         # ★ inter-head mixer (identity-init)
 │   ├── mamba_block.py                  # block wiring (no causal conv)
 │   └── transformer.py                  # top-level Mamba-3
 ├── training/
 │   └── pretrain.py                     # full training loop + resume
 ├── utils/
 │   ├── checkpoint.py                   # atomic safetensors
-│   ├── logging.py                      # WandB-capable logger
-│   └── memory.py                       # VRAM estimator
+│   └── logging.py                      # WandB-capable logger
 ├── data/
-│   ├── prepare_data.py                 # Shim over data/shared_data/ universal pipeline
-│   ├── shared_data/                    # Vendored universal 8.0B-token pipeline
-│   └── DATA_PIPELINE.md                # Per-project pipeline guide
+│   ├── prepare_data.py                 # shim over the shared 8.0B-token pipeline
+│   └── DATA_PIPELINE.md                # pipeline guide + data mix
 ├── scripts/
-│   └── launch_a100.sh
+│   ├── launch_a100.sh
+│   └── generate_code_map.py           # code map from doc citations
 ├── tests/
-│   ├── conftest.py
 │   ├── test_ssd.py                     # ★ chunk vs naive equivalence
+│   ├── test_ssd_triton.py              # kernel reference, dispatch guards, GPU parity
+│   ├── test_doc_refs.py                # doc↔code alignment checker (docs CI gate)
 │   ├── test_mimo.py
-│   ├── test_models.py                  # param count, forward shape
-│   ├── test_smoke.py                   # tiny CPU smoke
-│   ├── test_training.py                # LR schedule, ckpt, NaN guard
-│   ├── test_inference.py               # generate shape
 │   ├── test_grad_checkpoint.py
 │   ├── test_train_step.py
 │   ├── test_transformer.py
-│   ├── test_utils.py
-│   └── __init__.py
-├── documentation/                      # full design + implementation docs
-│   ├── README.md
-│   ├── ssd.md                          # SSD deep-dive
-│   ├── mamba_block.md
-│   ├── transformer.md
-│   ├── training.md
-│   ├── inference.md
-│   ├── data_pipeline.md
-│   └── utils.md
-├── SSD.md                              # ★ standalone SSD deep-dive
+│   └── e2e_gpu_smoke.py                # 8-check GPU pipeline smoke (CUDA + triton)
+├── docs/                               # ★ full documentation tree
+│   ├── README.md                       # doc map + reading paths
+│   ├── theory/                         # from-scratch concept building (T1–T8)
+│   ├── reference/                      # symbol-anchored API docs (R1–R12)
+│   └── guides/                         # task-oriented runbooks (G1–G4)
 ├── AGENTS.md
 ├── SKILLS.md
 ├── LICENSE                             # Apache 2.0
@@ -281,17 +278,20 @@ Mamba-3-Lite/
 └── pytest.ini
 ```
 
-> **Test suite status.** The `tests/` directory contains ~11 tests covering
-> the complex chunkwise SSD (vs naive scan oracle), MIMO mixer identity init,
-> transformer forward, grad-checkpoint wiring, and one-step training on dummy
-> data. See `SSD.md` for the full mathematical derivation.
+> **Test suite status.** `tests/` contains 37 tests: the complex chunkwise
+> SSD (vs naive scan oracle), MIMO mixer identity init (class-level and
+> inside the full model), the Triton kernel reference + dispatch guards +
+> autograd gradcheck, transformer forward, grad-checkpoint wiring,
+> one-step training on dummy data, and the doc↔code alignment checker.
+> 32 pass on CPU; 5 are GPU-gated.
+> See `docs/theory/04-chunkwise-algorithm.md` for the full mathematical derivation.
 
 ---
 
 ## 🧪 Verification
 
 The Mamba-3 SSD math is verified by the **test suite** in `tests/` and by
-inline assertions in `models/ssd.py` and `models/ssd_complex.py`. Manual
+inline assertions in `models/ssd_complex.py`. Manual
 smoke checks:
 
 ```bash
@@ -309,7 +309,7 @@ print('forward ok, param count:', sum(p.numel() for p in m.parameters()))
 "
 
 # 2. Headline equivalence (chunkwise SSD vs naive O(T) recurrence)
-#    See SSD.md for the derivation. The math is exercised by every
+#    See docs/theory/04-chunkwise-algorithm.md for the derivation. The math is exercised by every
 #    forward pass — if it regressed, training loss would diverge.
 ```
 
@@ -326,7 +326,7 @@ PRs welcome for:
 
 Please:
 
-1. Read [`SSD.md`](SSD.md) before touching `models/ssd_complex.py`.
+1. Read [`docs/theory/04-chunkwise-algorithm.md`](docs/theory/04-chunkwise-algorithm.md) before touching `models/ssd_complex.py`.
 2. Run `python3 -m pytest tests/ -v` — all must pass.
 3. Do **not** add attention layers, MoE, or MTP — this is a pure SSM repo (avoids overlap with the rest of the portfolio).
 4. Do **not** add `mamba-ssm` or `causal_conv1d` dependencies.
@@ -336,7 +336,7 @@ Please:
 ## ⚠️ Known caveats
 
 - **Full 8B-token pretraining run not yet started** (no GPU on dev machine). The inline assertions validate all primitives on CPU + tiny shapes.
-- **Complex SSD has 2× element bandwidth** vs real SSD (complex64 = 2× float32) — the per-state size halving must offset this. Theoretical analysis in `SSD.md`; will be measured at full scale.
+- **Complex SSD has 2× element bandwidth** vs real SSD (complex64 = 2× float32) — the per-state size halving must offset this. Theoretical analysis in `docs/theory/08-scaling-efficiency.md`; will be measured at full scale.
 - **No causal conv = slightly weaker local-pattern bias.** Mamba-3 trades a small amount of inductive bias for memory bandwidth and simplicity.
 
 ---

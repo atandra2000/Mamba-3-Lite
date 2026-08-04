@@ -2,8 +2,10 @@
 
 Requires the `shared_data` package. The repo's `data/DATA_PIPELINE.md` says it
 is vendored at `data/shared_data/` or lives in the workspace at `LLM/shared_data/`
-— but this clone ships neither. The E2E test bypasses the shim entirely and
-writes a synthetic uint32 token shard via `torch.save`; see `tests/e2e_gpu_smoke.py`.
+— this clone ships no vendored copy, but the workspace `LLM/shared_data/` is
+present, so the guard resolves the workspace fallback and the CLI proceeds.
+The E2E test bypasses the shim entirely and writes a synthetic uint32 token
+shard via `torch.save`; see `tests/e2e_gpu_smoke.py`.
 
 To re-enable the full 8.0B-token pipeline, vendor `shared_data` from a sibling
 project or install it from the workspace.
@@ -16,7 +18,7 @@ import yaml
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
-_LLM_ROOT = _PROJECT_ROOT.parent.parent  # .../CoreProjects/
+_LLM_ROOT = _PROJECT_ROOT.parent  # .../CoreProjects/LLM/ (workspace shared_data lives here)
 
 
 def _require_shared_data() -> None:

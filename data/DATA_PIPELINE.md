@@ -2,8 +2,10 @@
 
 > This project uses the **universal 8.0B-token LLM data pipeline** shared
 > by all 5 LLM projects in the CoreProjects portfolio.
-> The pipeline is **vendored in-tree** at `data/shared_data/` so the repo
-> is fully self-contained on a fresh clone.
+> The pipeline is **not vendored in-tree** on this clone: `data/shared_data/`
+> is absent, so the shim falls back to the workspace-level `LLM/shared_data/`
+> (see "Vendored copy" below). The repo is therefore **not** fully
+> self-contained on a fresh clone.
 
 ---
 
@@ -68,7 +70,7 @@ level: `LLM/shared_data/README.md` (and the per-module deep-dives in
 - The manifest schema
 - Performance numbers and atomicity invariants
 
-## Data mix (8.0B tokens, Chinchilla-optimal for ~400M-param models)
+## Data mix (8.0B tokens, Chinchilla-optimal for ~434M-param models)
 
 | Source | Weight | Tokens |
 |---|---:|---:|
@@ -111,8 +113,8 @@ runnable on its own. The shim's `sys.path` lookup is:
 
 ```python
 # in data/prepare_data.py
-sys.path.insert(0, <project_root>/data)        # vendored copy first
-sys.path.insert(0, <workspace_root>/LLM)       # workspace copy as fallback
+sys.path.insert(0, <project_root>)        # repo root on the path
+sys.path.insert(0, <workspace_root>)      # CoreProjects/LLM — workspace copy as fallback
 ```
 
 ## Updating the vendored copy
