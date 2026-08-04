@@ -74,7 +74,7 @@ Walking the loop over state `s` of shape `(B, H, N, D)`: `A_bar[:, t]` unsqueeze
 ```python
 def ssd_complex_chunkwise(
     x: torch.Tensor, A: torch.Tensor, B_t: torch.Tensor, C_t: torch.Tensor, dt: torch.Tensor,
-    chunk_size: int = 64, initial_states: torch.Tensor | None = None,
+    chunk_size: int = 64,
     ssd_dispatch: str = "pytorch",
 ) -> torch.Tensor:
     """Complex chunkwise SSD.
@@ -85,11 +85,12 @@ def ssd_complex_chunkwise(
     """
 ```
 
-The first five parameters are identical to `ssd_naive_complex`. The three extra parameters:
+The first five parameters are identical to `ssd_naive_complex`. The two extra parameters:
 
 - `chunk_size` (`int`, default `64`) — the chunk length `C`; the sequence is padded to a multiple of `C`.
-- `initial_states` (`(B, H, D, N)` complex64 or `None`, default `None`) — the state predating chunk 0, i.e. `h_{-1}`; `None` means zeros (the block always scans from a fresh zero state).
 - `ssd_dispatch` (`"pytorch" | "triton"`, default `"pytorch"`) — which implementation computes the per-chunk work (see Dispatch semantics below).
+
+The scan always starts from a fresh zero state — there is no `initial_states` parameter (see [docs/theory/01-ssm-foundations.md](../theory/01-ssm-foundations.md) §State-init zeros).
 
 Return contract: `(B, T, H, D)` **float32 real** — `Y.real`, sliced back to `T`. The dtype difference from the oracle is part of the contract: the chunkwise path discards the imaginary part by design, because the block's residual branch must be real (see [docs/theory/06-block-anatomy.md](../theory/06-block-anatomy.md)).
 

@@ -107,7 +107,7 @@ The state is complex because the *dynamics* are complex — the recurrence is on
 - a probability distribution over the 50,257-token vocabulary is real; complex logits have no meaning for cross-entropy;
 - keeping `lm_head` real halves its memory (`50257 × 1024` complex64 would double the head's footprint) and keeps the logit path in FP32 as required by `AGENTS.md` ("Recurrent state stays in complex64; logits in FP32").
 
-So `complex64` is confined to the SSD scan: `B_t`/`C_t` are complex only inside `ssd_complex_chunkwise`, the state tensors (`states`, `initial_states` zeros of dtype `complex64`) never leave it, and `Y.real` hands a float32 tensor to the rest of the block. From there every subsequent op — MIMO, `out_proj`, residual, `norm_f`, `lm_head` in `models/transformer.py:Mamba3Transformer.forward` — is a real FP32 linear map, ending in real FP32 logits. The imaginary part of the scan output carries no probability mass — discarding it is the intended projection, not a lossy truncation.
+So `complex64` is confined to the SSD scan: `B_t`/`C_t` are complex only inside `ssd_complex_chunkwise`, the state tensors (`states`, starting from zeros of dtype `complex64`) never leave it, and `Y.real` hands a float32 tensor to the rest of the block. From there every subsequent op — MIMO, `out_proj`, residual, `norm_f`, `lm_head` in `models/transformer.py:Mamba3Transformer.forward` — is a real FP32 linear map, ending in real FP32 logits. The imaginary part of the scan output carries no probability mass — discarding it is the intended projection, not a lossy truncation.
 
 ## `torch` complex mechanics
 
@@ -176,7 +176,7 @@ The production path replaces the O(T) loop with the chunked algorithm (derived i
 - inter-chunk `decay_chunk = exp(cd_seg)·tril` from the per-chunk cumsums;
 - the output term `Y_off` weights propagated states by `exp(A_cumsum)`, and `Y = Y_diag + Y_off` is truncated with `Y = Y.real` before being sliced back to `T`.
 
-All state tensors (`states`, `initial_states`) are `complex64`; only the final `Y.real` (float32) escapes. When `ssd_dispatch='triton'`, the per-chunk `Y_diag` and `state` are produced by `models/ssd_triton.py:per_chunk_ssd_triton` and the inter-chunk propagation stays in PyTorch.
+All state tensors (`states`) are `complex64`; only the final `Y.real` (float32) escapes. When `ssd_dispatch='triton'`, the per-chunk `Y_diag` and `state` are produced by `models/ssd_triton.py:per_chunk_ssd_triton` and the inter-chunk propagation stays in PyTorch.
 
 ### The kernel-side split: `models/ssd_triton.py:_view_real_imag`
 

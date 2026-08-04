@@ -1,10 +1,15 @@
 # configs/pretrain_a100_400m.yaml
-# Mamba-3-Lite ~400M param Chinchilla-optimal pre-training.
+# Mamba-3-Lite ~434M param Chinchilla-optimal pre-training.
 # Designed for 1x A100 80GB SXM. Target: ~12-15 h at 35-40% MFU.
 #
 # Architecture: d_model=1024, 28 Mamba-3 blocks, 16 SSM heads,
-#               state_dim N=64, chunk=64, 8.0B Chinchilla-optimal tokens.
-#               (~404M params: 28 layers × 14.5M/layer + 51M embed)
+#               state_dim N=64, chunk=64, Chinchilla-optimal tokens.
+#               (~434M params: 28 layers × 13.65M/layer + 51.5M tied embed
+#               + 1K final RMSNorm; exact total 433,662,400)
+#
+# Token budget: 256,000 steps × 32 tokens-per-step (micro 16 × accum 2 ×
+# seq 2048) = ~16.8B token exposures (~2 epochs over the 8.0B-token corpus);
+# 8.0B unique tokens is the Chinchilla-optimal corpus size for ~434M params.
 #
 # Stability features:
 #   - 2000-step linear warmup + cosine decay to 5%
@@ -15,7 +20,7 @@
 model:
   vocab_size:          50257          # GPT-2 tokenizer
   d_model:             1024
-  n_layers:            28             # 28 blocks → ~404M params
+  n_layers:            28             # 28 blocks → ~434M params
   n_heads:             16             # SSM heads
   head_dim:            64             # D — per-head channel dim
   state_dim:           64            # N — SSM state expansion
@@ -47,9 +52,10 @@ training:
   save_dir:                      "checkpoints/pretrain_a100"
 
 data:
+  # Spec record (no code reads these — only train_data_path is consumed):
+  # tokenizer: gpt2 (hard-wired GPT-2 BPE, vocab 50,257, EOS/PAD 50,256)
+  # shard_size_tokens: 50000000 (50M tokens/shard, uint32, ~190 MB)
+  # max_tokens: 8000000000 (8.0B corpus cap — the 8.0B design figure)
+  # data_mix: "mamba2-default"
+  # mix: fineweb-edu 0.50 / fineweb 0.20 / the-stack-python 0.15 / openmath-instruct-2 0.10 / arxiv 0.05
   train_data_path:      "data/pretrain_chinchilla"
-  tokenizer:            "gpt2"
-  shard_size_tokens:    50000000
-  max_tokens:           8000000000
-  data_mix:             "mamba2-default"
-  # mix: fineweb-edu 0.6 / fineweb 0.2 / the-stack-python 0.1 / openmath 0.1

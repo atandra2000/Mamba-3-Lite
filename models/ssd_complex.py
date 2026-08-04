@@ -26,7 +26,7 @@ def ssd_naive_complex(
 
 def ssd_complex_chunkwise(
     x: torch.Tensor, A: torch.Tensor, B_t: torch.Tensor, C_t: torch.Tensor, dt: torch.Tensor,
-    chunk_size: int = 64, initial_states: torch.Tensor | None = None,
+    chunk_size: int = 64,
     ssd_dispatch: str = "pytorch",
 ) -> torch.Tensor:
     """Complex chunkwise SSD.
@@ -60,9 +60,7 @@ def ssd_complex_chunkwise(
 
     if ssd_dispatch == "triton":
         from .ssd_triton import per_chunk_ssd_triton
-        Y_diag, states = per_chunk_ssd_triton(
-            Bc, Cc, Xc, Ac, decay_states, B_t, C_t, A, dt, chunk_size,
-        )
+        Y_diag, states = per_chunk_ssd_triton(Bc, Cc, Xc, Ac, decay_states)
     else:
         Ac_perm = Ac.permute(0, 1, 3, 2).contiguous()
         T_c = Ac_perm.size(-1)
@@ -74,17 +72,24 @@ def ssd_complex_chunkwise(
         Y_diag = torch.einsum("bclhn,bcshn,bchls,bcshp->bclhp", Cc, Bc, L, Xc)
         states = torch.einsum("bclhn,bclh,bclhp->bchpn", Bc, decay_states, Xc)
 
-    if initial_states is None:
-        initial_states = torch.zeros(B_, H, D, N, device=x.device, dtype=torch.complex64)
-    states = torch.cat([initial_states.unsqueeze(1), states], dim=1)
-
     chunk_decay = A_cumsum[:, :, -1, :]
     cd_perm = chunk_decay.permute(0, 2, 1).contiguous()
     cd_cumsum = torch.cumsum(cd_perm, dim=-1)
-    cd_seg = cd_cumsum.unsqueeze(-1) - cd_cumsum.unsqueeze(-2)
-    decay_chunk = torch.exp(cd_seg) * torch.tril(torch.ones(n_chunks, n_chunks, device=x.device, dtype=torch.bool))
+    # cd_shift[z] = CD[z-1] with CD[-1] := 0: the total decay applied to the
+    # initial state as it travels through chunks 0..z-1.
+    cd_shift = torch.cat([torch.zeros_like(cd_cumsum[..., :1]), cd_cumsum[..., :-1]], dim=-1)
+    # M[z, c] = exp(CD[z-1] - CD[c]) · 1[z > c]: decay applied to chunk c's
+    # end-of-chunk state while it travels through chunks c+1..z-1.
+    cd_seg = cd_shift.unsqueeze(-1) - cd_cumsum.unsqueeze(-2)
+    decay_chunk = torch.exp(cd_seg) * torch.tril(
+        torch.ones(n_chunks, n_chunks, device=x.device, dtype=torch.bool), diagonal=-1,
+    )
 
-    states = torch.einsum("bhzc,bchpn->bzhpn", decay_chunk, states[:, :-1])
+    states = torch.einsum("bhzc,bchpn->bzhpn", decay_chunk, states)
+    # The scan always starts from a fresh zero state (no initial_states param):
+    # before the first token nothing is known, and the linear recurrence makes
+    # zero init unbiased. The state predating chunk 0 therefore contributes
+    # nothing; only chunk states decay through chunks 0..z-1.
 
     Y_off = torch.einsum("bclhn,bchpn,bclh->bclhp", Cc, states, torch.exp(A_cumsum))
 

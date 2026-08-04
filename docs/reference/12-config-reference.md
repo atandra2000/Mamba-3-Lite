@@ -49,12 +49,10 @@ training:
   save_dir:                      "checkpoints/pretrain_a100"
 
 data:
+  # Spec record (not read by code): tokenizer gpt2 · shard 50M tokens ·
+  # 8.0B cap · mix 0.50/0.20/0.15/0.10/0.05 (fineweb-edu/fineweb/the-stack-
+  # python/openmath-instruct-2/arxiv)
   train_data_path:      "data/pretrain_chinchilla"
-  tokenizer:            "gpt2"
-  shard_size_tokens:    50000000
-  max_tokens:           8000000000
-  data_mix:             "mamba2-default"
-  # mix: fineweb-edu 0.50 / fineweb 0.20 / the-stack-python 0.15 / openmath-instruct-2 0.10 / arxiv 0.05
 ```
 
 ## Model section → `ModelConfig`
@@ -108,10 +106,8 @@ This is the section with the translations. `main()` reads the `training:` dict `
 | YAML key | Consumer | Default if absent | Runtime effect |
 |---|---|---|---|
 | `train_data_path` | `TrainingConfig.data_path` | `"data/pretrain_data.bin"` | Dataset root for `training/pretrain.py:PretrainDataset` — a directory of `shard_*.bin` (`sharded`), a single `torch.save` long tensor (`single`), or a missing path → `dummy` randint data with a warning. `--data-path` overrides. |
-| `tokenizer` | **none** | — | Spec only. The tokenizer is hard-wired to GPT-2 BPE (vocab 50,257, EOS/PAD id 50,256); no code reads this key. |
-| `shard_size_tokens` | **none** | — | Spec only (documentation of the shard format produced by the data pipeline; see [R11 — Data pipeline](11-data-pipeline.md)). |
-| `max_tokens` | **none** | — | Spec only: the 8.0B-token dataset cap. This is the *only* place 8.0B appears consistently. |
-| `data_mix` | **none** | — | Spec only. Verified: `grep` over `training/` finds zero references to `data_mix`, `tokenizer`, `shard_size_tokens`, or `max_tokens`. The mix comment (0.50/0.20/0.15/0.10/0.05) is the authoritative record; README's 0.6/0.2/0.1/0.1 is stale. |
+
+The former spec-only keys (`tokenizer`, `shard_size_tokens`, `max_tokens`, `data_mix`) were removed from the YAML in the cleanup — they had zero readers (the tokenizer is hard-wired to GPT-2 BPE; the pipeline, not `pretrain.py`, consumes shard metadata). Their values are preserved as comments above `train_data_path` so the 8.0B cap and the 0.50/0.20/0.15/0.10/0.05 mix record survive.
 
 ## The token arithmetic: 16.78B vs 8.39B vs 8.0B
 
@@ -123,7 +119,7 @@ That is the honest consumption figure. The `# ~8.0B tokens` comment matches *nei
 
 $$256{,}000 \times (16 \times 2048) = 8{,}388{,}608{,}000 \approx 8.39\text{B}$$
 
-The only place 8.0B is exactly right is `max_tokens: 8000000000` — the dataset size cap, which is *not read by any code*. Derived consequences: the dataset holds $(8\text{e}9 - 1) \mathbin{/} 2048 \approx 3.91\text{M}$ windows, while the run needs $256{,}000 \times 32 = 8.19\text{M}$ samples — so the data is re-read ~2.1× over the run (no shuffle: `DataLoader(..., num_workers=0, drop_last=True)`), and unique tokens seen (~8.0B) are far fewer than exposures (~16.8B). Chinchilla's 20-tokens-per-parameter rule for 433,662,400 params gives $20 \times 433{,}662{,}400 \approx 8.67\text{B}$ — so 8.0–8.4B is the intended *data size*, while the run actually spends 16.78B exposures on it. [INFERENCE] Whether the exposure/unique gap matters for convergence is an empirical question; the config's own comment is simply wrong arithmetic.
+The 8.0B figure lives only in the spec record comment (`max_tokens: 8000000000`) — no code reads it. Derived consequences: the dataset holds $(8\text{e}9 - 1) \mathbin{/} 2048 \approx 3.91\text{M}$ windows, while the run needs $256{,}000 \times 32 = 8.19\text{M}$ samples — so the data is re-read ~2.1× over the run (no shuffle: `DataLoader(..., num_workers=0, drop_last=True)`), and unique tokens seen (~8.0B) are far fewer than exposures (~16.8B). Chinchilla's 20-tokens-per-parameter rule for 433,662,400 params gives $20 \times 433{,}662{,}400 \approx 8.67\text{B}$ — so 8.0–8.4B is the intended *data size*, while the run actually spends 16.78B exposures on it. [INFERENCE] Whether the exposure/unique gap matters for convergence is an empirical question; the config's own comment is simply wrong arithmetic.
 
 Also note the config header still says "~400M param" on its first line while the block comment below correctly says "~434M params: 28 layers × 13.65M/layer + 51.5M tied embed" — a stale comment inside the file itself; the code builds 433,662,400 parameters.
 
@@ -135,7 +131,7 @@ Also note the config header still says "~400M param" on its first line while the
 4. **`compile_mode` is consumed, and the env var overrides the YAML.** `TORCH_COMPILE_MODE` beats `compile_mode` in `Pretrainer.__init__`. A run script exporting `TORCH_COMPILE_MODE=default` silently ignores `"max-autotune"`.
 5. **`ssd_dispatch` is absent from the canonical config.** The production run uses the PyTorch chunkwise path by default. To actually get the Triton kernel you must add `ssd_dispatch: triton` under `model:` **and** export `ENABLE_TRITON_KERNELS=1`, or `_enforce_triton_env_var` force-rewrites it back with one warn line.
 6. **`vocab_size`/`max_seq_len` are duplicated.** They live in the model section but are re-read into `TrainingConfig` for the dataset. They come from the same YAML key, so they cannot diverge through the config file — but a `TrainingConfig` built in code (tests, notebooks) can carry values that disagree with its `model_config`, producing e.g. dummy data from the wrong vocab range. Keep the two in sync.
-7. **The data section is documentation, not configuration.** Changing `max_tokens` or `data_mix` has zero effect on `pretrain.py`. Only `train_data_path` (and `--data-path`) reach the dataset. If you edit these keys expecting behavior change, nothing happens — the pipeline (see [R11](11-data-pipeline.md)) is the actual consumer of that metadata.
+7. **The data section is documentation, not configuration.** Only `train_data_path` (and `--data-path`) reach the dataset; the other spec values (`max_tokens`, `data_mix`, …) live in comments and have zero effect on `pretrain.py`. The pipeline (see [R11](11-data-pipeline.md)) is the actual consumer of that metadata.
 
 ## Tests
 

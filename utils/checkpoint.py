@@ -1,5 +1,10 @@
-"""Atomic safetensors checkpoint manager with shared-tensor dedup and step discovery."""
-import json, logging, os, tempfile
+"""Safetensors checkpoint manager with storage-independent tensor copies and step discovery.
+
+save() writes three files per step (model safetensors, optimizer pt, meta json).
+Tied weights (embed <-> head) share storage; safetensors cannot save aliased
+tensors, so the second alias is copied. Direct writes + an all-three-files
+completeness check are the crash-resilience mechanism (not atomic rename)."""
+import json, logging
 from pathlib import Path
 from typing import Optional
 import torch
@@ -18,16 +23,15 @@ class CheckpointManager:
     def save(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer, step: int,
              extra_meta: Optional[dict] = None, state_dict: Optional[dict] = None) -> None:
         state = state_dict if state_dict is not None else model.state_dict()
+        # safetensors rejects aliased (shared-storage) tensors; copy the
+        # second alias so every entry has independent storage.
+        independent: dict = {}
         seen_ptrs: set = set()
-        deduped: dict = {}
         for k, v in state.items():
             ptr = v.data_ptr()
-            if ptr in seen_ptrs:
-                deduped[k] = v.contiguous().clone()
-            else:
-                seen_ptrs.add(ptr)
-                deduped[k] = v.contiguous()
-        save_file(deduped, self.save_dir / f"model_step_{step}.safetensors")
+            independent[k] = v.clone() if ptr in seen_ptrs else v
+            seen_ptrs.add(ptr)
+        save_file(independent, self.save_dir / f"model_step_{step}.safetensors")
         torch.save(optimizer.state_dict(), self.save_dir / f"optim_step_{step}.pt")
         meta: dict = {"step": step}
         if extra_meta:
@@ -68,8 +72,8 @@ class CheckpointManager:
         return next((s for s in sorted(steps, reverse=True) if self._checkpoint_complete(s)), None)
 
     @staticmethod
-    def _write_json(tmp: str, obj: dict) -> None:
-        with open(tmp, "w") as f:
+    def _write_json(path: str, obj: dict) -> None:
+        with open(path, "w") as f:
             json.dump(obj, f, indent=2, default=str)
 
     def _list_steps(self) -> list:
