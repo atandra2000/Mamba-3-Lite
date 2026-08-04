@@ -91,7 +91,7 @@ def _require_shared_data() -> None:
 `data/prepare_data.py:_require_shared_data` is called first thing in `main()`, before argparse. On this clone the vendored copy is absent but the workspace fallback `LLM/shared_data/` exists, so the guard returns normally and the CLI proceeds to parse args and delegate to the workspace pipeline. Verified behaviour on this clone:
 
 ```
-$ python3 data/prepare_data.py --stage pretrain
+$ python3 data/prepare_data.py
 [data/mamba3] universal corpus: 8,000,000,000 tokens
 [data/mamba3] tokenizer: gpt2 (vocab=50,257, EOS=50,256)
 [data/mamba3] shard size: 50,000,000 tokens (uint32)
@@ -148,7 +148,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Mamba-3-Lite data prep (delegates to universal pipeline)"
     )
-    parser.add_argument("--stage", choices=["pretrain"], default="pretrain")
     parser.add_argument("--mixture", default=None)
     parser.add_argument("--data-config", default=None)
     parser.add_argument("--data-root", default=None)
@@ -176,7 +175,7 @@ def main() -> int:
     )
 ```
 
-`data/prepare_data.py:main`'s flags map 1:1 onto `run_pipeline`'s keyword-only parameters (verified against the workspace orchestrator): `mixture_path`, `data_config_path`, `source`, `skip_download`, `skip_clean`, `skip_tokenize`, `skip_pack`, `data_root`, plus a `skip_train_tokenizer=True` default the shim does not expose — sensible, because GPT-2 BPE is a pretrained HF tokenizer that needs no training. `--stage` currently accepts only `pretrain`. The return value is the orchestrator's process exit code (0 success; 2 = a required config file missing). Before delegating, `_apply_mamba_defaults` prints the contract:
+`data/prepare_data.py:main`'s flags map 1:1 onto `run_pipeline`'s keyword-only parameters (verified against the workspace orchestrator): `mixture_path`, `data_config_path`, `source`, `skip_download`, `skip_clean`, `skip_tokenize`, `skip_pack`, `data_root`, plus a `skip_train_tokenizer=True` default the shim does not expose — sensible, because GPT-2 BPE is a pretrained HF tokenizer that needs no training. The return value is the orchestrator's process exit code (0 success; 2 = a required config file missing). Before delegating, `_apply_mamba_defaults` prints the contract:
 
 ```
 [data/mamba3] universal corpus: 8,000,000,000 tokens
