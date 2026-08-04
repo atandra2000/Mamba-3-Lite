@@ -53,8 +53,3 @@ htmlcov/
 # Environment
 .env
 .env.local
-
-
-documentation/
-AGENTS.md
-SKILLS.md
