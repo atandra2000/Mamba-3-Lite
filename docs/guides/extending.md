@@ -1,4 +1,4 @@
-# G4 — Extending the Repo
+# Mamba-3-Lite — Extending the Repo — SSM variants and Triton kernels
 
 Task-oriented guide for adding new sequence-mixing variants and new sanctioned Triton kernels to Mamba-3-Lite, exactly as the repo's rules require.
 
@@ -6,7 +6,7 @@ Task-oriented guide for adding new sequence-mixing variants and new sanctioned T
 
 After reading this guide you can ship a new SSM variant (Path A) or a new Triton kernel (Path B) through the repo's two sanctioned extension paths. Path A is pure PyTorch: write the O(T) naive reference **first**, add a flag to `models/transformer.py:ModelConfig`, gate the dispatch in `models/mamba_block.py:Mamba3Block._ssd_with_dispatch`, prove chunkwise≡naive with an equivalence test that includes time-varying dt, and keep the doc checker green. Path B is Triton: a new `models/<name>_triton.py` with a `try/except ImportError` → `HAS_TRITON` gate, a `torch.autograd.Function` whose backward **recomputes the reference math and seeds it with the true `grad_outputs`** (the pattern in `models/ssd_triton.py:_PerChunkSSDTriton`), a CPU-runnable pure-PyTorch reference test, GPU parity tests auto-skipped on CPU, and an update to the sanctioned list in AGENTS.md.
 
-The governing rules (restated from AGENTS.md): raw PyTorch by default, custom Triton kernels first-party only for sanctioned hot paths, no HF Trainer / Lightning / mamba-ssm / causal_conv1d (rule 1); know the chunkwise algorithm before touching SSD code — rule 2, successor reference `docs/theory/04-chunkwise-algorithm.md`; the chunkwise linear projection must match the naive O(T) scan oracle exactly (rule 3); N must stay even so complex packing is exact (rule 4); never add MoE, MTP, or attention layers — pure SSM repo (rule 5); new Triton kernels need a CPU-runnable unit test with GPU-only behaviour gated so it auto-skips on CPU (rule 7); comments stay concise (rule 8).
+The governing rules (restated from AGENTS.md): raw PyTorch by default, custom Triton kernels first-party only for sanctioned hot paths, no HF Trainer / Lightning / mamba-ssm / causal_conv1d (rule 1); know the chunkwise algorithm before touching SSD code — rule 2, successor reference `docs/concepts/ssd-theory.md`; the chunkwise linear projection must match the naive O(T) scan oracle exactly (rule 3); N must stay even so complex packing is exact (rule 4); never add MoE, MTP, or attention layers — pure SSM repo (rule 5); new Triton kernels need a CPU-runnable unit test with GPU-only behaviour gated so it auto-skips on CPU (rule 7); comments stay concise (rule 8).
 
 ## Why it exists
 
@@ -66,13 +66,13 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/test_doc_refs.py -v
 ```
 
-Expected on a CPU/Mac box: 37 tests collected (32 passed, 5 GPU-skipped), doc checker 0 failures. The second command is the repo's doc rule (section below): new public functions must be cited in a reference doc, or the coverage check flags them. Update `docs/reference/` (and cross-link `docs/theory/04-chunkwise-algorithm.md` if you touched the chunkwise derivation), then report the anchors you cited.
+Expected on a CPU/Mac box: 37 tests collected (32 passed, 5 GPU-skipped), doc checker 0 failures. The second command is the repo's doc rule (section below): new public functions must be cited in a reference doc, or the coverage check flags them. Update `docs/references/` (and cross-link `docs/concepts/ssd-theory.md` if you touched the chunkwise derivation), then report the anchors you cited.
 
 ---
 
 ## Path B — add a sanctioned Triton kernel
 
-The contract comes from AGENTS.md rule 1 and its §1 kernel clause. Read `docs/reference/03-ssd-triton.md` first — it is the migrated anatomy of the one existing kernel and the template for yours.
+The contract comes from AGENTS.md rule 1 and its §1 kernel clause. Read `docs/references/ssd-reference.md` first — it is the migrated anatomy of the one existing kernel and the template for yours.
 
 ### Step 1: file placement and the import gate
 
@@ -156,13 +156,13 @@ gpu_required = pytest.mark.skipif(
 )
 ```
 
-GPU-only tests decorated with `@gpu_required` auto-skip on CPU/Mac. Finally, add the new path to the sanctioned list in AGENTS.md §1 (rule 1 — no new kernel ships without this) and add a `docs/reference/` doc per the doc rule below.
+GPU-only tests decorated with `@gpu_required` auto-skip on CPU/Mac. Finally, add the new path to the sanctioned list in AGENTS.md §1 (rule 1 — no new kernel ships without this) and add a `docs/references/` doc per the doc rule below.
 
 ---
 
 ## The doc rule
 
-Docs ship with code. `tests/test_doc_refs.py::test_doc_refs_all_anchors_resolve` parses every `docs/**/*.md`, extracts `file.py:Symbol` anchors, resolves each against the working tree (importlib + `hasattr`-chain), and fails on unknown files or symbols; its coverage mode additionally requires every public symbol in `models/`, `training/`, `utils/` to be cited somewhere. The writing contract (`local://doc_contract.md`, reproduced in `docs/docs_expansion_plan.md`) pins the style: 60-second summary → why it exists → intuition → math (LaTeX, derived not asserted) → symbol-anchored code walkthrough → pitfalls → tests. Anchor rules: cite only `file.py:Symbol` / `file.py:Class.method`, never line numbers; never cite symbols defined under `if HAS_TRITON:` (cite host wrappers like `models/ssd_triton.py:per_chunk_ssd_triton` instead); never cite `data/shared_data/*` (absent in this clone); mark measured vs derived vs `[INFERENCE]` — there is no `.benchmarks/`, so all throughput numbers are estimates; the parameter count is 433,662,400 (~434M), never 404M.
+Docs ship with code. `tests/test_doc_refs.py::test_doc_refs_all_anchors_resolve` parses every `docs/**/*.md`, extracts `file.py:Symbol` anchors, resolves each against the working tree (importlib + `hasattr`-chain), and fails on unknown files or symbols; its coverage mode additionally requires every public symbol in `models/`, `training/`, `utils/` to be cited somewhere. The canonical doc style is visible throughout `docs/` (see `docs/README.md` for the layout): a one-paragraph intro, backticked `file.py:Symbol` citations, no line numbers, `## References` last. Anchor rules: cite only `file.py:Symbol` / `file.py:Class.method`, never line numbers; never cite symbols defined under `if HAS_TRITON:` (cite host wrappers like `models/ssd_triton.py:per_chunk_ssd_triton` instead); never cite `data/shared_data/*` (absent in this clone); mark measured vs derived vs `[INFERENCE]` — there is no `.benchmarks/`, so all throughput numbers are estimates; the parameter count is 433,662,400 (~434M), never 404M.
 
 ## Path C — non-goals
 
@@ -181,8 +181,17 @@ Extensions that are off the table by rule: attention layers, MoE, and MTP (AGENT
 
 - `python3 -m pytest tests/ -v` → 37 tests collected (32 passed, 5 GPU-skipped on CPU).
 - `python3 -m pytest tests/test_doc_refs.py -v` → 0 anchor failures.
-- New public symbols cited in `docs/reference/` (coverage gate).
+- New public symbols cited in `docs/references/` (coverage gate).
 - New kernel listed in AGENTS.md §1 sanctioned paths.
 - GPU class under `@gpu_required` skipif; CPU reference class runs without triton.
 
-Cross-links: [R1 — ModelConfig](../reference/01-model-config.md), [R2 — ssd_complex](../reference/02-ssd-complex.md), [R3 — ssd_triton](../reference/03-ssd-triton.md), [R5 — Mamba block](../reference/05-mamba-block.md), [T3 — complex SSD](../theory/03-complex-ssd.md), [T4 — chunkwise algorithm](../theory/04-chunkwise-algorithm.md), [G1 — quickstart](01-quickstart.md), [G3 — tuning](03-tuning.md), and the doc map in `docs/README.md`.
+Cross-links: [Mamba-3-Lite — Config Reference](../references/config-reference.md), [Mamba-3-Lite — SSD Reference](../references/ssd-reference.md), [Mamba-3-Lite — SSD Reference](../references/ssd-reference.md), [Mamba-3-Lite — Model Reference](../references/model-reference.md), [Mamba-3-Lite — SSD Theory](../concepts/ssd-theory.md), [Mamba-3-Lite — SSD Theory](../concepts/ssd-theory.md), [Mamba-3-Lite — Quickstart](quickstart.md), [Mamba-3-Lite — Tuning Guide](tuning.md), and the doc map in `docs/README.md`.
+
+## References
+
+- [Mamba-3-Lite — Config Reference](../references/config-reference.md) — `models/transformer.py:ModelConfig` field addition pattern.
+- [Mamba-3-Lite — SSD Reference](../references/ssd-reference.md) — the migrated anatomy of the one existing kernel and the template for new ones.
+- [Mamba-3-Lite — Model Reference](../references/model-reference.md) — the block dispatch seam.
+- [Mamba-3-Lite — SSD Theory](../concepts/ssd-theory.md) — the chunkwise algorithm any new variant must match.
+- [Mamba-3-Lite — MIMO Head Mixing](../concepts/mimo.md) — the `_identity_init` escape-hatch pattern.
+- [Mamba-3-Lite — Quickstart](quickstart.md), [Mamba-3-Lite — Tuning Guide](tuning.md), and the doc map in `docs/README.md`.

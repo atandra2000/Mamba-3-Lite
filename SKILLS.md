@@ -35,7 +35,7 @@ y_naive = ssd_naive_complex(x, A, B_t, C_t, dt)
 assert torch.allclose(y_chunk, y_naive.real, atol=1e-4)
 ```
 
-If the assertion fails, **do not** ship — `docs/theory/04-chunkwise-algorithm.md`
+If the assertion fails, **do not** ship — `docs/concepts/ssd-theory.md`
 is the breakdown reference for the chunkwise-vs-naive derivation.
 
 ## Skill 3: Tune chunk_size for throughput
@@ -70,7 +70,7 @@ round-trip, and a full `Pretrainer` dry-run. Requires CUDA + triton.
 
 - **Triton is sanctioned for one hot path:** `per_chunk_ssd_triton` in
   `models/ssd_triton.py`. No new kernel without updating `AGENTS.md` §1
-  and adding `docs/reference/<name>.md`.
+  and adding `docs/references/<name>.md`.
 - **FA2 is disabled:** don't add `with sdpa_kernel(FLASH_ATTENTION)`;
   the chunkwise projection replaces attention.
 - **Complex stride:** `torch.view_as_complex` requires the last dim to

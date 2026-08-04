@@ -1,4 +1,4 @@
-# G3 — Tuning Guide
+# Mamba-3-Lite — Tuning Guide — measure, don't guess
 
 Task-oriented walkthrough of every training knob in `configs/pretrain_a100_400m.yaml`: what each one does, how it interacts with the others, and — most importantly — how to *measure* its effect before you trust it.
 
@@ -18,7 +18,7 @@ The metrics are windowed (averaged over the last `log_every` micro-steps), `ppl 
 
 $$tps = \frac{\text{log\_every} \times \text{seq\_len} \times \text{batch\_size}}{\text{elapsed}}$$
 
-where `seq_len` is `max_seq_len` (2048) and `batch_size` is the **micro** batch — so tps is model-work tokens/sec through forward+backward, unaffected by accumulation (2 micro-steps of 2× tokens take 2× time; the ratio is the same). The same dict goes to WandB when `WANDB_PROJECT` is set. Full contract: [R10 — logging](../reference/10-logging.md).
+where `seq_len` is `max_seq_len` (2048) and `batch_size` is the **micro** batch — so tps is model-work tokens/sec through forward+backward, unaffected by accumulation (2 micro-steps of 2× tokens take 2× time; the ratio is the same). The same dict goes to WandB when `WANDB_PROJECT` is set. Full contract: [Mamba-3-Lite — Training Reference](../references/training-reference.md).
 
 Three habits before touching any knob:
 
@@ -30,7 +30,7 @@ Three habits before touching any knob:
 
 **What it is.** `chunk_size` is a field of `models/transformer.py:ModelConfig` (default 64) consumed by `models/ssd_complex.py:ssd_complex_chunkwise` (via `models/mamba_block.py:Mamba3Block.chunk_size`). The sequence mixer replaces the O(T) sequential scan with two levels: intra-chunk matmuls over windows of C tokens plus an inter-chunk scan over `T/C` chunks. `ssd_complex_chunkwise` pads T to a multiple of C (`pad = (C - (T % C)) % C`), so C need not divide T.
 
-**The tradeoff** (derived in [T8 — scaling/efficiency](../theory/08-scaling-efficiency.md), all throughput columns `[INFERENCE]`):
+**The tradeoff** (derived in [Mamba-3-Lite — Block Anatomy and Numerical Stability](../concepts/block-and-stability.md), all throughput columns `[INFERENCE]`):
 
 | C | chunks | L bytes/layer¹ | intra-chunk GEMM | inter-chunk scan | throughput² |
 |---|---|---|---|---|---|
@@ -39,7 +39,7 @@ Three habits before touching any knob:
 | 128 | 16 | 512 MiB | 128×128 | 16 hops | +5–10% |
 | 256 | 8 | 1024 MiB | 256×256 | 8 hops | +10–15%; OOM risk at seq 8k / batch ≥ 32 |
 
-¹ The materialized causal-decay matrix $L[l,s] = e^{A_{cs}[l]-A_{cs}[s]}\mathbf{1}[l\ge s]$ is $C\times C$ per (batch, chunk, head): $|L| = 8\,B\,H\,T\,C$ bytes at complex64 (derived in [T8 — scaling/efficiency](../theory/08-scaling-efficiency.md)). Larger C = **more L memory but bigger, tensor-core-friendlier GEMMs and fewer sequential chunk hops**. With `grad_checkpoint: true` (default) L is rebuilt in backward instead of stored — see Section 6. ² SKILLS.md Skill 3's numbers, `[INFERENCE]` — no measured sweep exists in this tree.
+¹ The materialized causal-decay matrix $L[l,s] = e^{A_{cs}[l]-A_{cs}[s]}\mathbf{1}[l\ge s]$ is $C\times C$ per (batch, chunk, head): $|L| = 8\,B\,H\,T\,C$ bytes at complex64 (derived in [Mamba-3-Lite — Block Anatomy and Numerical Stability](../concepts/block-and-stability.md)). Larger C = **more L memory but bigger, tensor-core-friendlier GEMMs and fewer sequential chunk hops**. With `grad_checkpoint: true` (default) L is rebuilt in backward instead of stored — see Section 6. ² SKILLS.md Skill 3's numbers, `[INFERENCE]` — no measured sweep exists in this tree.
 
 **Two hard constraints on the Triton path.** `chunk_size` becomes the constexpr `BLOCK_C` consumed by `tl.arange`, so it must be a **power of two** — and it must be **≤ 256**, enforced by `models/ssd_triton.py:_check_block_dims`:
 
@@ -71,7 +71,7 @@ $$lr_t = \eta_{\min} + \tfrac12(\text{lr}-\eta_{\min})\bigl(1 + \cos(\pi \tfrac{
 
 The 0.01× start is the stability margin: the first steps see raw gradient directions, and ramping from a small value keeps the first optimizer updates small.
 
-**Too-high lr looks like early NaN.** The failure signature is a loss that spikes or stalls in the first few hundred steps and then a `[nan-guard]` line: `training/pretrain.py:train_step` checks `torch.isnan(loss)` before backward and returns `None` instead of stepping; `Pretrainer.train` counts consecutive NaN micro-steps, and after `nan_guard_max_consecutive` (5) it restores the latest checkpoint — or aborts with `RuntimeError` if none exists. Full semantics: [T7 — numerical stability](../theory/07-numerical-stability.md).
+**Too-high lr looks like early NaN.** The failure signature is a loss that spikes or stalls in the first few hundred steps and then a `[nan-guard]` line: `training/pretrain.py:train_step` checks `torch.isnan(loss)` before backward and returns `None` instead of stepping; `Pretrainer.train` counts consecutive NaN micro-steps, and after `nan_guard_max_consecutive` (5) it restores the latest checkpoint — or aborts with `RuntimeError` if none exists. Full semantics: [Mamba-3-Lite — Block Anatomy and Numerical Stability](../concepts/block-and-stability.md).
 
 **Why 3e-4?** `[INFERENCE]` — no sweep exists in the repo. The rationale that survives arithmetic: (a) 3e-4 is the standard peak for the 100M–1B parameter class with Adam-family optimizers; (b) **beta2=0.95** (not 0.999) shortens the second-moment EMA window to $1/(1-\beta_2) = 20$ steps, so $v_t$ tracks recent gradients closely and the adaptive update $\eta/(\sqrt{\hat v_t}+\epsilon)$ is *less damped* — a smaller peak lr is warranted than with β₂=0.999; (c) warmup absorbs the early-stability risk and the NaN guard is the safety net. Treat 3e-4 as the default arm of an A/B, not as law: if loss is flat but stable try `lr: 6e-4`; if it spikes, halve it. Measure via the `lr=` and `loss=` columns.
 
@@ -85,11 +85,11 @@ $$\text{tokens/step} = \text{micro\_batch\_size} \times \text{gradient\_accumula
 
 - **Raise `micro_batch_size`** when the card has spare memory: bigger GEMMs, better tensor-core utilization, fewer micro-steps per optimizer step. Cost: activation memory grows linearly.
 - **Raise `gradient_accumulation_steps`** for a larger effective batch (more stable gradients) without touching memory. Cost: the optimizer (and clipping) only runs at accumulation boundaries, so more accumulation lengthens wall-clock per optimizer step.
-- Keep `micro_batch_size × gradient_accumulation_steps` constant and the *number* of optimizer steps for a fixed token budget is constant — you trade memory against GEMM efficiency, not step count (see [T8](../theory/08-scaling-efficiency.md) §5 for the step-count arithmetic).
+- Keep `micro_batch_size × gradient_accumulation_steps` constant and the *number* of optimizer steps for a fixed token budget is constant — you trade memory against GEMM efficiency, not step count (see [Mamba-3-Lite — Block Anatomy and Numerical Stability](../concepts/block-and-stability.md) §5 for the step-count arithmetic).
 
 Grad clipping: `nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)` runs **once per optimizer step**, on the accumulated gradients (`train_step`, guarded by `is_opt_step`) — the correct place, since clipping per micro-step would distort the accumulation. `max_grad_norm = 1.0` is the production default.
 
-**Measure it:** tps (Section 2) is the honest throughput number; peak VRAM comes from `nvidia-smi` on the A100 box. The A100 runbook ([G2 — training runbook](02-training-runbook.md)) covers the 80 GB budget.
+**Measure it:** tps (Section 2) is the honest throughput number; peak VRAM comes from `nvidia-smi` on the A100 box. The A100 runbook ([Mamba-3-Lite — Training Runbook](training-runbook.md)) covers the 80 GB budget.
 
 ## 6. grad_checkpoint — one global boolean
 
@@ -102,7 +102,7 @@ if self.grad_checkpoint and self.training:
     )
 ```
 
-**Effect:** activations for the block's forward are not stored; the backward re-runs `_forward_impl` (SSD included) once per block. Cost ≈ one extra forward pass ≈ **~33% more FLOPs**; saving ≈ **~1.4 GiB per layer** at the production batch (derived in [T8](../theory/08-scaling-efficiency.md) §6.4 — `[INFERENCE]`, no measured profile). The L matrix of Section 3 is the biggest thing not stored.
+**Effect:** activations for the block's forward are not stored; the backward re-runs `_forward_impl` (SSD included) once per block. Cost ≈ one extra forward pass ≈ **~33% more FLOPs**; saving ≈ **~1.4 GiB per layer** at the production batch (derived in [Mamba-3-Lite — Block Anatomy and Numerical Stability](../concepts/block-and-stability.md) §6.4 — `[INFERENCE]`, no measured profile). The L matrix of Section 3 is the biggest thing not stored.
 
 **When to flip it:** memory-bound runs (batch 32+, seq 8k) → keep `true`; if FLOP-bound with headroom, `false` buys ~25–30% throughput `[INFERENCE]`. The CLI override is `--no-checkpoint`; the YAML key wins either way (`setdefault` only fills a *missing* key — an explicit `grad_checkpoint: false` is respected).
 
@@ -129,7 +129,7 @@ Compile only affects the FLOP-utilization ledger, never the FLOP count — its e
 
 ## 8. Triton dispatch
 
-The one sanctioned Triton kernel fuses the per-chunk SSD work (L construction, the two complex GEMMs, the state update) into one program per (batch, chunk, head) — see [R3 — SSD Triton](../reference/03-ssd-triton.md). Enabling it is a **two-part opt-in**:
+The one sanctioned Triton kernel fuses the per-chunk SSD work (L construction, the two complex GEMMs, the state update) into one program per (batch, chunk, head) — see [Mamba-3-Lite — SSD Reference](../references/ssd-reference.md). Enabling it is a **two-part opt-in**:
 
 1. `ssd_dispatch: "triton"` under `model:` in the YAML (a `ModelConfig` field), **and**
 2. `ENABLE_TRITON_KERNELS=1` in the environment — otherwise `training/pretrain.py:_enforce_triton_env_var` force-rewrites the config back to `"pytorch"` with a single `[warn]` line, no error.
@@ -148,8 +148,8 @@ Outside the harness (notebooks, tests), a triton-less box prints one warning per
 
 Three facts shape any tuning run:
 
-1. **No shuffling.** `training/pretrain.py:Pretrainer.train` builds `DataLoader(dataset, batch_size=..., num_workers=0, drop_last=True)` with no `shuffle=True`: every epoch scans windows in the same deterministic order (see [R8 — dataset](../reference/08-dataset.md)). Comparisons are *not* confounded by data order — but curves reflect one fixed order.
-2. **The data mix is fixed upstream.** The YAML's `data.data_mix: "mamba2-default"` field is documentation for the pipeline, not a knob `pretrain.py` reads (it reads only `train_data_path`): fineweb-edu 0.50 / fineweb 0.20 / the-stack-python 0.15 / openmath-instruct-2 0.10 / arxiv 0.05 — see [R11 — data pipeline](../reference/11-data-pipeline.md). A/B arms must share the same data path or loss comparisons are meaningless.
+1. **No shuffling.** `training/pretrain.py:Pretrainer.train` builds `DataLoader(dataset, batch_size=..., num_workers=0, drop_last=True)` with no `shuffle=True`: every epoch scans windows in the same deterministic order (see [Mamba-3-Lite — Training Reference](../references/training-reference.md)). Comparisons are *not* confounded by data order — but curves reflect one fixed order.
+2. **The data mix is fixed upstream.** The YAML's `data.data_mix: "mamba2-default"` field is documentation for the pipeline, not a knob `pretrain.py` reads (it reads only `train_data_path`): fineweb-edu 0.50 / fineweb 0.20 / the-stack-python 0.15 / openmath-instruct-2 0.10 / arxiv 0.05 — see [Mamba-3-Lite — Training](../training.md). A/B arms must share the same data path or loss comparisons are meaningless.
 3. **EOS-separated shards caveat.** The workspace pipeline's raw on-disk format (EOS-separated `uint32` records, per `LLM/shared_data/`) is **not** directly loadable — it must be converted to packed `torch.long` tensors (`tests/e2e_gpu_smoke.py:_build_synthetic_shard` shows the format). Once packed, EOS id 50,256 is just another token: no document handling, windows overlap by one token, every position of `y` is trained on.
 
 ## 10. A/B test protocol
@@ -194,7 +194,7 @@ Expected `[INFERENCE]`: B shows +5–10% tps (bigger intra-chunk GEMMs, half the
 - `tests/test_train_step.py::test_train_step_on_tiny_model` — the accumulation/clip/schedule plumbing on CPU.
 - `tests/e2e_gpu_smoke.py` (CUDA + triton) — check 7 exercises a full `Pretrainer` dry-run with triton dispatch.
 
-Related: [R1 — ModelConfig](../reference/01-model-config.md), [R7 — pretrain CLI](../reference/07-pretrain-cli.md), [R10 — logging](../reference/10-logging.md), [T8 — scaling/efficiency](../theory/08-scaling-efficiency.md) (the derivations behind every `[INFERENCE]` here), [G2 — training runbook](02-training-runbook.md) (the full A100 launch), [G1 — quickstart](01-quickstart.md).
+Related: [Mamba-3-Lite — Config Reference](../references/config-reference.md), [Mamba-3-Lite — Pretrain CLI](../guides/pretrain-cli.md), [Mamba-3-Lite — Training Reference](../references/training-reference.md), [Mamba-3-Lite — Block Anatomy and Numerical Stability](../concepts/block-and-stability.md) (the derivations behind every `[INFERENCE]` here), [Mamba-3-Lite — Training Runbook](training-runbook.md) (the full A100 launch), [Mamba-3-Lite — Quickstart](quickstart.md).
 
 ## 13. Anchors cited
 
@@ -211,3 +211,12 @@ Related: [R1 — ModelConfig](../reference/01-model-config.md), [R7 — pretrain
 - `training/pretrain.py:_enforce_triton_env_var`
 - `training/pretrain.py:main`
 - `utils/logging.py:TrainingLogger.log`
+
+## References
+
+- [Mamba-3-Lite — Config Reference](../references/config-reference.md) — every knob's field, default, and consumer.
+- [Mamba-3-Lite — Pretrain CLI](pretrain-cli.md) — the YAML→`TrainingConfig` mapping.
+- [Mamba-3-Lite — Training Reference](../references/training-reference.md) — the logger's `tps` formula and dataset behavior.
+- [Mamba-3-Lite — Block Anatomy and Numerical Stability](../concepts/block-and-stability.md) — the derivations behind every `[INFERENCE]` here.
+- [Mamba-3-Lite — Training Runbook](training-runbook.md) — the full A100 launch.
+- [Mamba-3-Lite — Quickstart](quickstart.md).

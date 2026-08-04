@@ -8,9 +8,9 @@
 > **Stack:** PyTorch ≥2.1, no `mamba-ssm`, no custom CUDA (see rule #1 —
 > one sanctioned opt-in Triton kernel; everything else stays pure PyTorch).
 > **Hardware:** A100 80GB (no offloading).
-> **Architecture detail:** see `README.md` in this folder, **`docs/theory/04-chunkwise-algorithm.md`**
+> **Architecture detail:** see `README.md` in this folder, **`docs/concepts/ssd-theory.md`**
 > (authoritative chunkwise-complex-SSD derivation) and the full `docs/` tree
-> (theory/ + reference/ + guides/, see `docs/README.md`). Cross-project helper: root
+> (concepts/ + references/ + guides/, see `docs/README.md`). Cross-project helper: root
 > `AGENTS.md §2.13` (`mamba2-ssd-engineer`).
 
 ## 1. Subagent: `mamba2-ssd-engineer` (also covers Mamba-3)
@@ -57,7 +57,7 @@ in Mamba-3?", "Tune chunk_size for throughput."
    PyTorch. No HuggingFace Trainer, no Lightning, no high-level
    wrappers. The sanctioned Triton paths are listed in §1 above. No
    new component gets a custom kernel without updating this file and
-   adding a `docs/reference/<name>.md` doc.
+   adding a `docs/references/<name>.md` doc.
    - **Conflict-resolution note:** the previous "no Triton" hard rule
      (rule #5 in earlier versions of this file) is **superseded** by
      this rule. The current project ships one sanctioned Triton path
@@ -68,8 +68,8 @@ in Mamba-3?", "Tune chunk_size for throughput."
      dispatch back to `'pytorch'` with a one-line warning (per-block
      warn-and-fallback in `Mamba3Block`, and a process-level guard in
      `training/pretrain.py:_enforce_triton_env_var`).
-2. **Always** read `docs/theory/04-chunkwise-algorithm.md` (and, for
-   context, `docs/theory/01`–`03`) before answering complex-SSD algorithm
+2. **Always** read `docs/concepts/ssd-theory.md` (and, for
+   context, `docs/concepts/state-space-foundations.md` and `docs/concepts/mimo.md`) before answering complex-SSD algorithm
    questions — it is the authoritative derivation (covers the chunkwise
    projection einsum-by-einsum, the complex recurrence, and MIMO mixer).
 3. **Always** verify the regression tests pass after any change to
@@ -118,8 +118,9 @@ in Mamba-3?", "Tune chunk_size for throughput."
 - `models/mamba_block.py` — residual block (RMSNorm → SSD → MIMO → SwiGLU).
 - `models/transformer.py` — `Mamba3Transformer` + `ModelConfig`.
 - `training/`, `data/`, `scripts/`, `tests/`, `utils/`.
-- `docs/` — theory/ (concept-building), reference/ (symbol-anchored API), guides/.
-  `docs/README.md` is the doc map. `tests/test_doc_refs.py` is the alignment checker.
+- `docs/` — concepts/ (concept-building), references/ (symbol-anchored API), guides/,
+  and `training.md` (data pipeline). `docs/README.md` is the doc map.
+  `tests/test_doc_refs.py` is the alignment checker.
 - `README.md`, `requirements.txt`, `pytest.ini`, `LICENSE`.
 
 ## 5. Known caveats
@@ -136,4 +137,4 @@ or removes a public symbol must update the docs that cite it. `tests/test_doc_re
 parses every `file.py:Symbol` anchor in `docs/` and fails on unknown files or
 symbols — run it (and `python3 -m pytest tests/`) before committing doc or
 code changes. New components (e.g. a sanctioned Triton kernel) must add a
-`docs/reference/<name>.md` per the writing contract in `docs/docs_expansion_plan.md`.
+`docs/references/<name>.md` doc following the style in the existing docs.

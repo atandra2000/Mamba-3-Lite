@@ -25,7 +25,6 @@ DOC_PATHS = [
     ROOT / "README.md",
     ROOT / "AGENTS.md",
     ROOT / "SKILLS.md",
-    ROOT / "data" / "DATA_PIPELINE.md",
 ]
 # The plan file embeds literal `file.py:Symbol` metasyntax examples; skip it.
 SKIP_DOCS = {ROOT / "docs" / "docs_expansion_plan.md"}

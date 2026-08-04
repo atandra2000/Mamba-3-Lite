@@ -1,8 +1,6 @@
-<div align="center">
-
 # Mamba-3-Lite
 
-### A from-scratch PyTorch reproduction of Mamba-3 with complex-valued SSD state spaces
+A from-scratch PyTorch reproduction of Mamba-3 with complex-valued SSD state spaces.
 
 **~434M params · 8.0B Chinchilla-optimal tokens · 12–15 h on a single A100 80GB · N=64 complex64 states**
 
@@ -13,9 +11,7 @@
 [![No custom CUDA](https://img.shields.io/badge/CUDA-None%20required-blueviolet)](#-purity)
 [![Code style: black](https://img.shields.io/badge/Code%20Style-black-000000?logo=python&logoColor=white)](https://github.com/psf/black)
 
-[**Architecture**](#-architecture) · [**Headline metric**](#-headline-metric) · [**Quick start**](#-quick-start) · [**References**](#-references)
-
-</div>
+[**Architecture**](#-architecture) · [**Headline metric**](#-headline-metric) · [**Quick start**](#-quick-start) · [**Documentation**](#-documentation) · [**References**](#-references)
 
 ---
 
@@ -45,7 +41,7 @@
 
 > **Mamba-3-Lite: 50% smaller complex state (N=64, complex64) achieves parity loss with Mamba-2 at N=128** on the same 8.0B-token Chinchilla run (single A100 80GB, ~10–12 h wall time).
 
-The complex recurrence `h_t = exp((A_real + i·A_imag)·dt) · h_{t-1} + (B_real + i·B_imag)·x_t` packs two real eigenvalues (one decay, one rotation) into a single complex state, doubling the expressive capacity per parameter. Verified by `tests/test_ssd.py::test_chunkwise_matches_naive_complex`; the derivation is in [`docs/theory/04-chunkwise-algorithm.md`](docs/theory/04-chunkwise-algorithm.md).
+The complex recurrence `h_t = exp((A_real + i·A_imag)·dt) · h_{t-1} + (B_real + i·B_imag)·x_t` packs two real eigenvalues (one decay, one rotation) into a single complex state, doubling the expressive capacity per parameter. Verified by `tests/test_ssd.py::test_chunkwise_matches_naive_complex`; the derivation is in [`docs/concepts/ssd-theory.md`](docs/concepts/ssd-theory.md).
 
 ---
 
@@ -121,7 +117,7 @@ The canonical config is [`configs/pretrain_a100_400m.yaml`](configs/pretrain_a10
 | `grad_checkpoint` | true (uniform across all blocks) |
 | `compile_mode` | `max-autotune` |
 | `nan_guard_max_consecutive` | 5 (with checkpoint rollback) |
-| `data_mix` | fineweb-edu 0.50 / fineweb 0.20 / the-stack-python 0.15 / openmath-instruct-2 0.10 / arxiv 0.05 |
+| `data_mix` | fineweb-edu 0.50 / fineweb 0.20 / the-stack-python 0.15 / openmath-instruct-2 0.10 / arxiv 0.05 (spec annotation only — `pretrain.py` reads no `data:` key except `train_data_path`; see `docs/training.md`) |
 
 ---
 
@@ -192,7 +188,7 @@ This is **not just "use complex64 tensors"** — it's a genuine representational
 
 The complex exponential `exp(α + iβ) = exp(α)·(cos β + i·sin β)` natively captures both **decay** (α) and **oscillation** (β), which is impossible in real SSMs without doubling the state.
 
-> 📖 **Full math deep-dive:** see [`docs/theory/04-chunkwise-algorithm.md`](docs/theory/04-chunkwise-algorithm.md) for the chunkwise algorithm derivation, and [`docs/theory/02-state-space-duality.md`](docs/theory/02-state-space-duality.md) for the connection to self-attention.
+> 📖 **Full math deep-dive:** see [`docs/concepts/ssd-theory.md`](docs/concepts/ssd-theory.md) for the chunkwise algorithm derivation (and its section on state-space duality for the connection to self-attention).
 
 ---
 
@@ -253,7 +249,7 @@ Mamba-3-Lite/
 │   └── logging.py                      # WandB-capable logger
 ├── data/
 │   ├── prepare_data.py                 # shim over the shared 8.0B-token pipeline
-│   └── DATA_PIPELINE.md                # pipeline guide + data mix
+│   └── data_config.yaml                # materialised by the shim (GPT-2 vocab)
 ├── scripts/
 │   ├── launch_a100.sh
 │   └── generate_code_map.py           # code map from doc citations
@@ -268,9 +264,10 @@ Mamba-3-Lite/
 │   └── e2e_gpu_smoke.py                # 8-check GPU pipeline smoke (CUDA + triton)
 ├── docs/                               # ★ full documentation tree
 │   ├── README.md                       # doc map + reading paths
-│   ├── theory/                         # from-scratch concept building (T1–T8)
-│   ├── reference/                      # symbol-anchored API docs (R1–R12)
-│   └── guides/                         # task-oriented runbooks (G1–G4)
+│   ├── concepts/                       # from-scratch concept building
+│   ├── references/                     # symbol-anchored API docs
+│   ├── guides/                         # task-oriented runbooks
+│   └── training.md                     # data pipeline + dataset path
 ├── AGENTS.md
 ├── SKILLS.md
 ├── LICENSE                             # Apache 2.0
@@ -284,7 +281,21 @@ Mamba-3-Lite/
 > autograd gradcheck, transformer forward, grad-checkpoint wiring,
 > one-step training on dummy data, and the doc↔code alignment checker.
 > 32 pass on CPU; 5 are GPU-gated.
-> See `docs/theory/04-chunkwise-algorithm.md` for the full mathematical derivation.
+> See `docs/concepts/ssd-theory.md` for the full mathematical derivation.
+
+---
+
+## 📖 Documentation
+
+The full doc tree lives in [`docs/`](docs/README.md), machine-checked for
+doc↔code alignment by `tests/test_doc_refs.py` (`--coverage --links`):
+
+| Area | Where |
+|---|---|
+| SSD theory (foundations → duality → complex states → chunkwise algorithm) | [`docs/concepts/`](docs/README.md) |
+| API references (config, SSD/kernel, model, training) | [`docs/references/`](docs/README.md) |
+| How-to guides (quickstart, runbook, tuning, extending, pretrain CLI) | [`docs/guides/`](docs/README.md) |
+| Data pipeline + dataset path | [`docs/training.md`](docs/training.md) |
 
 ---
 
@@ -309,7 +320,7 @@ print('forward ok, param count:', sum(p.numel() for p in m.parameters()))
 "
 
 # 2. Headline equivalence (chunkwise SSD vs naive O(T) recurrence)
-#    See docs/theory/04-chunkwise-algorithm.md for the derivation. The math is exercised by every
+#    See docs/concepts/ssd-theory.md for the derivation. The math is exercised by every
 #    forward pass — if it regressed, training loss would diverge.
 ```
 
@@ -326,7 +337,7 @@ PRs welcome for:
 
 Please:
 
-1. Read [`docs/theory/04-chunkwise-algorithm.md`](docs/theory/04-chunkwise-algorithm.md) before touching `models/ssd_complex.py`.
+1. Read [`docs/concepts/ssd-theory.md`](docs/concepts/ssd-theory.md) before touching `models/ssd_complex.py`.
 2. Run `python3 -m pytest tests/ -v` — all must pass.
 3. Do **not** add attention layers, MoE, or MTP — this is a pure SSM repo (avoids overlap with the rest of the portfolio).
 4. Do **not** add `mamba-ssm` or `causal_conv1d` dependencies.
@@ -336,7 +347,7 @@ Please:
 ## ⚠️ Known caveats
 
 - **Full 8B-token pretraining run not yet started** (no GPU on dev machine). The inline assertions validate all primitives on CPU + tiny shapes.
-- **Complex SSD has 2× element bandwidth** vs real SSD (complex64 = 2× float32) — the per-state size halving must offset this. Theoretical analysis in `docs/theory/08-scaling-efficiency.md`; will be measured at full scale.
+- **Complex SSD has 2× element bandwidth** vs real SSD (complex64 = 2× float32) — the per-state size halving must offset this. Theoretical analysis in `docs/concepts/block-and-stability.md`; will be measured at full scale.
 - **No causal conv = slightly weaker local-pattern bias.** Mamba-3 trades a small amount of inductive bias for memory bandwidth and simplicity.
 
 ---

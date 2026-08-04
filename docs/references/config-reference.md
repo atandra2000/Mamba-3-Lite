@@ -1,4 +1,4 @@
-# R1 — ModelConfig
+# Mamba-3-Lite — Config Reference: ModelConfig and the Annotated YAML
 
 Reference for `models/transformer.py:ModelConfig`: the single dataclass that defines the Mamba-3-Lite architecture, field by field, with defaults, consumers, and the dispatch/checkpointing contracts that hang off it.
 
@@ -119,7 +119,7 @@ def _check_block_dims(P: int, N: int, chunk_size: int) -> None:
 
 `_check_block_dims` runs inside `models/ssd_triton.py:_per_chunk_ssd_triton_forward` with `P = head_dim`, `N = state_dim`, `C = chunk_size`. Any of the three above 256 raises `ValueError`, which the block catches, warns **once per block instance** (guarded by `Mamba3Block._triton_fallback_warned`), and re-runs on the PyTorch path. So a config with `state_dim=512` and `ssd_dispatch="triton"` is not an error — it is a per-block fallback to pytorch with a single printed warning per layer. The output remains numerically correct; only the implementation changes.
 
-What the triton dispatch actually replaces: inside `ssd_complex_chunkwise`, `ssd_dispatch="triton"` calls `models/ssd_triton.py:per_chunk_ssd_triton(Bc, Cc, Xc, Ac, decay_states)` to fuse the per-chunk `Y_diag` and end-of-chunk `states` into one kernel (`_PerChunkSSDTriton`, one program per `(B, chunk, H)`, complex64 split into contiguous float32 real/imag pairs by `_view_real_imag`). The inter-chunk state propagation einsums stay in PyTorch. The autograd `Function` recomputes the same per-chunk math with `models/ssd_triton.py:per_chunk_ssd_pytorch` in backward, seeded with the true downstream gradients. Env knobs `TRITON_PER_CHUNK_NUM_STAGES` (default 1) and `TRITON_PER_CHUNK_NUM_WARPS` (default 4) tune the kernel launch. For the full kernel anatomy see [R3 — SSD Triton](03-ssd-triton.md).
+What the triton dispatch actually replaces: inside `ssd_complex_chunkwise`, `ssd_dispatch="triton"` calls `models/ssd_triton.py:per_chunk_ssd_triton(Bc, Cc, Xc, Ac, decay_states)` to fuse the per-chunk `Y_diag` and end-of-chunk `states` into one kernel (`_PerChunkSSDTriton`, one program per `(B, chunk, H)`, complex64 split into contiguous float32 real/imag pairs by `_view_real_imag`). The inter-chunk state propagation einsums stay in PyTorch. The autograd `Function` recomputes the same per-chunk math with `models/ssd_triton.py:per_chunk_ssd_pytorch` in backward, seeded with the true downstream gradients. Env knobs `TRITON_PER_CHUNK_NUM_STAGES` (default 1) and `TRITON_PER_CHUNK_NUM_WARPS` (default 4) tune the kernel launch. For the full kernel anatomy see [Mamba-3-Lite — SSD Reference](../references/ssd-reference.md).
 
 ## `grad_checkpoint`: one global boolean
 
@@ -191,4 +191,31 @@ Parameter count (derived from the defaults; the 28 layers are identical):
 - `tests/test_ssd_triton.py::TestEnableTritonKernelsForceBack::test_triton_dispatch_forced_back_when_env_var_missing` and `::test_triton_dispatch_passes_through_when_env_var_set` — the `_enforce_triton_env_var` gate.
 - `tests/test_ssd_triton.py::TestPerChunkSsdImportSurface::test_check_block_dims_raises_value_error_on_too_large_dim` and `::test_check_block_dims_accepts_production_404m_shape` — the 256-cap (note the stale test name; the accepted shape is the production 64/64/64).
 
-See [T1 — SSM foundations](../theory/01-ssm-foundations.md), [T2 — state-space duality](../theory/02-state-space-duality.md), [T3 — complex SSD](../theory/03-complex-ssd.md), [T4 — chunkwise algorithm](../theory/04-chunkwise-algorithm.md), [T6 — block anatomy](../theory/06-block-anatomy.md) for the theory behind the fields, and [R5 — Mamba block](05-mamba-block.md) / [R6 — MIMO](06-mimo.md) for the per-block consumers.
+See [Mamba-3-Lite — SSD Foundations](../concepts/state-space-foundations.md), [Mamba-3-Lite — SSD Theory](../concepts/ssd-theory.md), [Mamba-3-Lite — SSD Theory](../concepts/ssd-theory.md), [Mamba-3-Lite — SSD Theory](../concepts/ssd-theory.md), [Mamba-3-Lite — Block Anatomy and Numerical Stability](../concepts/block-and-stability.md) for the theory behind the fields, and [Mamba-3-Lite — Model Reference](../references/model-reference.md) / [Mamba-3-Lite — Model Reference](../references/model-reference.md) for the per-block consumers.
+---
+
+#R12 — Annotated Config Reference
+
+Reference for `configs/pretrain_a100_400m.yaml`: every key in the canonical pre-training config, which dataclass consumes it, the default if it is absent, and the runtime effect — including the honest token-count arithmetic behind the "~8.0B tokens" claim.
+
+## 60-second summary
+
+After reading this doc you can, for every one of the 35 keys in `configs/pretrain_a100_400m.yaml`, name its consumer (`training/pretrain.py:TrainingConfig`, `models/transformer.py:ModelConfig`, or nothing), its fallback default, and its effect on the run. You will also know the key-name translations the YAML silently performs (`micro_batch_size` → `batch_size`, `total_steps` → `max_steps`, `grad_clip` → `max_grad_norm`, `save_interval` → `save_every`, `log_interval` → `log_every`, `save_dir` → `checkpoint_dir`, `compile` → `compile_model`, `train_data_path` → `data_path`), the fact that the whole `data:` section except `train_data_path` is *not consumed by any code*, and the arithmetic discrepancy: 256,000 steps × 2 micro-batches × 16 seqs × 2048 tokens = **16.78B token exposures**, not 8.0B.
+
+## Why it exists
+
+`training/pretrain.py:main` is the single entry point into pre-training, and its only structured input is this one YAML file. Unlike the model dataclass (`models/transformer.py:ModelConfig`), the YAML has **no schema and no validation**: it is parsed with `yaml.safe_load`, read field-by-field with `.get()` calls that each carry a silent default, and the keys it reads do not match the `TrainingConfig` field names (the YAML uses runbook-friendly names like `micro_batch_size`; the dataclass uses `batch_size`). Every key translation, every fallback, and every ignored key lives in one 40-line block of `main()`. This doc is the field-by-field map of that block, plus the arithmetic that makes the config's headline numbers check out — or fail to.
+
+## The full config, verbatim
+
+```yaml
+
+---
+
+## References
+
+- [Mamba-3-Lite — Model Reference](model-reference.md) — the modules that consume `models/transformer.py:ModelConfig` fields.
+- [Mamba-3-Lite — SSD Reference](ssd-reference.md) — the dispatch + 256-cap contract behind `ssd_dispatch`.
+- [Mamba-3-Lite — Training Reference](training-reference.md) — `training/pretrain.py:TrainingConfig` consumers (dataset, checkpoint, logging).
+- [Mamba-3-Lite — Pretrain CLI](../guides/pretrain-cli.md) — the `main()` YAML→`TrainingConfig` mapping and every CLI flag.
+- [Mamba-3-Lite — Tuning Guide](../guides/tuning.md) — how to measure the effect of each knob.

@@ -1,4 +1,4 @@
-# Quickstart — Run Mamba-3-Lite in 10 Minutes
+# Mamba-3-Lite — Quickstart — run Mamba-3-Lite in 10 minutes
 
 This guide walks a fresh clone from zero to a running training loop: install, verify the math, smoke-test the model, dry-run the trainer, and launch a real pre-training run with resume support.
 
@@ -115,7 +115,7 @@ What this does, step by step:
 3. `PretrainDataset` looks for the data path (`data/pretrain_chinchilla`). In a fresh clone that directory does not exist, so it prints `[warn] Pre-training data not found: ... Using dummy data for testing.` and falls back to random token windows (`training/pretrain.py:PretrainDataset` layout `dummy`). No data download is needed.
 4. The loop runs **two forward/backward micro-steps** at the real `micro_batch_size` (16) with gradient accumulation (so exactly one optimizer step), gradient clipping, and the NaN guard all active, then the final `save_checkpoint` writes the "final" checkpoint tagged step 2.
 
-Expected end state: `checkpoints/pretrain_a100/` contains the three files every checkpoint consists of — `model_step_2.safetensors`, `optim_step_2.pt`, `meta_step_2.json` — written by `utils/checkpoint.py:CheckpointManager` with atomic renames. That directory is the contract for `--resume`.
+Expected end state: `checkpoints/pretrain_a100/` contains the three files every checkpoint consists of — `model_step_2.safetensors`, `optim_step_2.pt`, `meta_step_2.json` — written by `utils/checkpoint.py:CheckpointManager` (the "atomic" docstring notwithstanding, the files are written directly; crash tolerance comes from the all-three-files completeness check — see the honesty note in [Mamba-3-Lite — Training Reference](../references/training-reference.md)). That directory is the contract for `--resume`.
 
 One honest caveat: the dry-run builds the **full 434M-parameter model**, so on a laptop CPU the two steps take a few minutes; on an A100 it is seconds. That is expected and fine — it is the only command in this guide that instantiates the production-scale model.
 
@@ -127,7 +127,7 @@ On a CUDA GPU with the prepared dataset:
 python3 training/pretrain.py --config configs/pretrain_a100_400m.yaml
 ```
 
-This trains for the full 256,000 micro-steps (~8.0B Chinchilla-optimal tokens: 16 × 2048 tokens per micro-step, with gradient accumulation 2 folding pairs of micro-steps into one optimizer step), saving a checkpoint every 4,000 steps to `checkpoints/pretrain_a100/`. If `data/pretrain_chinchilla` is missing you will get the same dummy-data warning as in the dry run — point the trainer at real data with `--data-path <path>` (see `docs/reference/11-data-pipeline.md` for the shard layout it expects).
+This trains for the full 256,000 optimizer steps (65,536 tokens per step — 16 micro-batch × 2 accumulation × 2048 sequence — so ~16.8B token exposures over the run; the 8.0B figure in the yaml header comment is the corpus size, not the exposure count, see [Mamba-3-Lite — Config Reference](../references/config-reference.md)), saving a checkpoint every 4,000 steps to `checkpoints/pretrain_a100/`. If `data/pretrain_chinchilla` is missing you will get the same dummy-data warning as in the dry run — point the trainer at real data with `--data-path <path>` (see [Mamba-3-Lite — Training](../training.md) for the shard layout it expects).
 
 To resume from an existing checkpoint (e.g. step 80,000):
 
@@ -139,7 +139,7 @@ python3 training/pretrain.py \
 
 `--resume <step>` calls `utils/checkpoint.py:CheckpointManager.load` with `strict=False`; it requires all three files for that step (`model_step_80000.safetensors`, `optim_step_80000.pt`, `meta_step_80000.json`), restores model, optimizer, and scheduler state, and continues from that step. If no `--resume` is given, the trainer instead auto-resumes the latest **complete** checkpoint found in the checkpoint directory.
 
-Other useful flags: `--no-checkpoint` disables gradient checkpointing (it is on by default — with `grad_checkpoint_every=4` only every 4th block recomputes), and `--data-path` / `--checkpoint-dir` override the YAML's data and save locations.
+Other useful flags: `--no-checkpoint` disables **gradient** checkpointing (it is on by default as one global boolean covering all 28 blocks — there is no `grad_checkpoint_every` cadence), and `--data-path` / `--checkpoint-dir` override the YAML's data and save locations.
 
 ### Environment variables
 
@@ -151,19 +151,27 @@ Other useful flags: `--no-checkpoint` disables gradient checkpointing (it is on 
 
 ## 9. Where to go next
 
-- **`docs/README.md`** — the full docs map; every theory, reference, and guide file indexed by topic.
-- **`docs/theory/04-chunkwise-algorithm.md`** — the math behind `ssd_complex_chunkwise`: the intra-chunk recurrence matrix, per-chunk state accumulation, and inter-chunk decay propagation. Read this before touching the SSD code.
-- **`docs/guides/02-training-runbook.md`** — the complete runbook for a production pre-training run: data preparation, launch scripts, monitoring, and failure recovery.
-- **`docs/reference/07-pretrain-cli.md`** — every CLI flag of `training/pretrain.py:main` with defaults and examples.
-- **`docs/reference/09-checkpoint.md`** — the checkpoint file format and the resume/rollback semantics in detail.
+- **`docs/README.md`** — the full docs map; every concept, reference, and guide file indexed by topic.
+- **`docs/concepts/ssd-theory.md`** — the math behind `ssd_complex_chunkwise`: the intra-chunk recurrence matrix, per-chunk state accumulation, and inter-chunk decay propagation. Read this before touching the SSD code.
+- **`docs/guides/training-runbook.md`** — the complete runbook for a production pre-training run: data preparation, launch scripts, monitoring, and failure recovery.
+- **`docs/guides/pretrain-cli.md`** — every CLI flag of `training/pretrain.py:main` with defaults and examples.
+- **`docs/references/training-reference.md`** — the checkpoint file format and the resume/rollback semantics in detail.
 
 ## 10. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `ModuleNotFoundError: No module named 'torch'` (or pytest cannot collect any tests) | `pip install -r requirements.txt` ran in a different environment than `python3` | Check `which python3` and `python3 -m pip --version`; reinstall into the same interpreter (`python3 -m pip install -r requirements.txt`). Verify with the section-2 version check. |
-| `ImportError` about `triton` when building a model | You set `ssd_dispatch='triton'` on a machine without Triton (standard on macOS / Windows) | Don't. The default is `pytorch`; `models/mamba_block.py:Mamba3Block._ssd_with_dispatch` also falls back to the PyTorch path with a one-shot warning per model instance, so a stray `ssd_dispatch` never hard-crashes training. The Triton kernel is opt-in and GPU-only (`docs/reference/03-ssd-triton.md`). |
+| `ImportError` about `triton` when building a model | You set `ssd_dispatch='triton'` on a machine without Triton (standard on macOS / Windows) | Don't. The default is `pytorch`; `models/mamba_block.py:Mamba3Block._ssd_with_dispatch` also falls back to the PyTorch path with a one-shot warning per model instance, so a stray `ssd_dispatch` never hard-crashes training. The Triton kernel is opt-in and GPU-only (`docs/references/ssd-reference.md`). |
 | `CUDA out of memory` during real training | Batch × sequence × model footprint exceeds VRAM | Lower `micro_batch_size` in the YAML (the accumulation step count compensates), or reduce `max_seq_len`. Keep gradient checkpointing on (`--no-checkpoint` is a foot-gun). Disable `torch.compile` with `--no-compile` if the compiler's memory overhead is the issue. |
-| `[warn] Pre-training data not found` and loss is garbage | Expected in a fresh clone — dummy random tokens carry no signal | That warning is by design for smoke tests. Point `--data-path` at real data (or prepare it via `docs/guides/02-training-runbook.md`) before judging loss curves. |
+| `[warn] Pre-training data not found` and loss is garbage | Expected in a fresh clone — dummy random tokens carry no signal | That warning is by design for smoke tests. Point `--data-path` at real data (or prepare it via `docs/guides/training-runbook.md`) before judging loss curves. |
 | `--resume 80000` errors about a missing checkpoint | One of the three step files is missing or the step was never saved | List `checkpoints/pretrain_a100/`; `utils/checkpoint.py:CheckpointManager.latest_step` only considers steps where all three files exist. Resume a step that does. |
 | Tests unexpectedly slow | The 434M dry-run model on CPU is inherently minutes; unit tests use tiny configs | Confirm you are running `pytest tests/` (tiny models, ~seconds), not the dry-run. The dry-run's two steps are the only heavyweight commands. |
+
+## References
+
+- [Mamba-3-Lite — SSD Foundations](../concepts/state-space-foundations.md) — the recurrence the quickstart's model smoke exercises.
+- [Mamba-3-Lite — SSD Theory](../concepts/ssd-theory.md) — the math behind `models/ssd_complex.py:ssd_complex_chunkwise`; read before touching SSD code.
+- [Mamba-3-Lite — Pretrain CLI](pretrain-cli.md) — every `training/pretrain.py:main` flag with defaults.
+- [Mamba-3-Lite — Training Reference](../references/training-reference.md) — dataset layouts, checkpoint format, logger semantics.
+- [Mamba-3-Lite — Training](../training.md) — preparing the real data the runbook needs.

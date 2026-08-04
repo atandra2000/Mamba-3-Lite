@@ -1,4 +1,4 @@
-# `training/pretrain.py` — TrainingConfig, the CLI, and the pre-training loop
+# Mamba-3-Lite — Pretrain CLI — TrainingConfig, flags, and the training loop
 
 This reference documents the single entry point for Mamba-3-Lite pre-training: the `training/pretrain.py:TrainingConfig` dataclass that carries every hyper-parameter, the `training/pretrain.py:main` CLI that maps a YAML file plus command-line overrides onto it, and the `training/pretrain.py:Pretrainer` class that owns the optimizer, scheduler, `torch.compile` wiring, and the training loop.
 
@@ -8,7 +8,7 @@ After reading this doc you will know: how a run is configured (a `configs/pretra
 
 ## 2. Why it exists
 
-Everything else in this repo is a component: the model ([`Mamba3Transformer`](04-transformer.md)), the block ([`Mamba3Block`](05-mamba-block.md)), the SSD kernel ([`per_chunk_ssd_triton`](03-ssd-triton.md)), the dataset ([`PretrainDataset`](08-dataset.md)), checkpoints ([`CheckpointManager`](09-checkpoint.md)), and logging ([`TrainingLogger`](10-logging.md)). `training/pretrain.py` is where they are composed into an actual training run. It is also the only file that instantiates the full 434M-parameter model and the only CLI a user ever invokes. If you want to know *what a run does*, this file is the answer; the reference docs R8–R12 describe the objects it uses.
+Everything else in this repo is a component: the model ([`Mamba3Transformer`](../references/model-reference.md)), the block ([`Mamba3Block`](../references/model-reference.md)), the SSD kernel ([`per_chunk_ssd_triton`](../references/ssd-reference.md)), the dataset ([`PretrainDataset`](../references/training-reference.md)), checkpoints ([`CheckpointManager`](../references/training-reference.md)), and logging ([`TrainingLogger`](../references/training-reference.md)). `training/pretrain.py` is where they are composed into an actual training run. It is also the only file that instantiates the full 434M-parameter model and the only CLI a user ever invokes. If you want to know *what a run does*, this file is the answer; the reference docs R8–R12 describe the objects it uses.
 
 ## 3. Signature and semantics
 
@@ -33,7 +33,7 @@ def train_step(model, optimizer, scheduler, config, amp_context, log,
 | Model construction | `training/pretrain.py:Pretrainer.__init__` builds `models/transformer.py:Mamba3Transformer` on `_DEVICE` (cuda:0 if available, else CPU) |
 | Counting | `training/pretrain.py:count_parameters` returns `(total, trainable)` and is logged at construction — the default build reports 433,662,400 total |
 | Device | CUDA if present; otherwise a warning is printed and the run executes on CPU ("smoke-testing only") |
-| Outputs | `checkpoint_dir/model_step_N.safetensors` + `optim_step_N.pt` + `meta_step_N.json` every `save_every` steps (see [`CheckpointManager`](09-checkpoint.md)) |
+| Outputs | `checkpoint_dir/model_step_N.safetensors` + `optim_step_N.pt` + `meta_step_N.json` every `save_every` steps (see [`CheckpointManager`](../references/training-reference.md)) |
 
 ## 4. TrainingConfig — every field
 
@@ -184,7 +184,7 @@ if config.compile_model and hasattr(torch, "compile"):
 ```
 
 - `compile_model` defaults to `True`; the YAML `training.compile` and `--no-compile` both gate it. `fullgraph=False` is hard-coded. `self.model` is the compiled module; `self.raw_model` is kept for checkpoints (state dicts come from the raw model, so compiled artifacts never leak into serialized weights).
-- **`ENABLE_TRITON_KERNELS`** (default `"0"`): consumed by `training/pretrain.py:_enforce_triton_env_var` — if the model config requests `ssd_dispatch="triton"` but the env var is not `"1"`, dispatch is force-backed to `"pytorch"` with a warning. The default dispatch is `"pytorch"` anyway; set `ENABLE_TRITON_KERNELS=1` and `ssd_dispatch: triton` in the model config to use the Triton per-chunk kernel (see [03-ssd-triton.md](03-ssd-triton.md)).
+- **`ENABLE_TRITON_KERNELS`** (default `"0"`): consumed by `training/pretrain.py:_enforce_triton_env_var` — if the model config requests `ssd_dispatch="triton"` but the env var is not `"1"`, dispatch is force-backed to `"pytorch"` with a warning. The default dispatch is `"pytorch"` anyway; set `ENABLE_TRITON_KERNELS=1` and `ssd_dispatch: triton` in the model config to use the Triton per-chunk kernel (see [03-ssd-triton.md](../references/ssd-reference.md)).
 - **`TORCH_COMPILE_MODE`**: overrides `training.compile_mode` (default `"max-autotune"`).
 - **`WANDB_PROJECT`** / **`WANDB_RUN_NAME`**: consumed by `utils/logging.py:TrainingLogger` — if `WANDB_PROJECT` is set, `wandb.init(project=…, name=WANDB_RUN_NAME, reinit=True)` runs (silently skipped if `wandb` is not installed).
 
@@ -204,3 +204,11 @@ if config.compile_model and hasattr(torch, "compile"):
 - `tests/test_train_step.py::test_train_step_on_tiny_model` — drives the module-level `training/pretrain.py:train_step` on a tiny model: asserts a finite loss and that parameters changed (guards the accumulation/step plumbing and the NaN guard's `None` return).
 - `tests/test_ssd_triton.py::TestEnableTritonKernelsForceBack` — `test_triton_dispatch_forced_back_when_env_var_missing` asserts `_enforce_triton_env_var` rewrites `ssd_dispatch` to `"pytorch"` when `ENABLE_TRITON_KERNELS` is unset, and `test_triton_dispatch_passes_through_when_env_var_set` asserts it stays `"triton"` when the env var is `"1"`.
 - End-to-end (CUDA + Triton only): `tests/e2e_gpu_smoke.py` runs a short real training loop; on a CPU box the suite is 37 tests collected (32 passed / 5 GPU-skipped).
+
+## References
+
+- [Mamba-3-Lite — Config Reference](../references/config-reference.md) — the annotated YAML behind `TrainingConfig`.
+- [Mamba-3-Lite — Training Reference](../references/training-reference.md) — `training/pretrain.py:PretrainDataset`, `utils/checkpoint.py:CheckpointManager`, `utils/logging.py:TrainingLogger`.
+- [Mamba-3-Lite — Training Runbook](training-runbook.md) — operational launch, monitoring, and recovery.
+- [Mamba-3-Lite — Tuning Guide](tuning.md) — measuring the schedule and batch knobs.
+- [Mamba-3-Lite — Block Anatomy and Numerical Stability](../concepts/block-and-stability.md) — the NaN guard and precision placement.
