@@ -81,12 +81,8 @@ class TestPerChunkSsdImportSurface:
         Xc = torch.randn(1, 1, 4, 1, 4, dtype=torch.complex64)
         A_log = torch.zeros(1, 1, 4, 1, dtype=torch.complex64)
         decay_states = torch.ones(1, 1, 4, 1, dtype=torch.complex64)
-        B_t = torch.randn(1, 4, 1, 4, dtype=torch.complex64)
-        C_t = torch.randn(1, 4, 1, 4, dtype=torch.complex64)
-        A = torch.randn(1, dtype=torch.complex64) - 1.0
-        dt = torch.zeros(1, 4, 1)
         with pytest.raises(ImportError, match="triton"):
-            per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states, B_t, C_t, A, dt, chunk_size=4)
+            per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states)
 
     def test_check_block_dims_raises_value_error_on_too_large_dim(self):
         with pytest.raises(ValueError, match="exceeds"):
@@ -98,6 +94,46 @@ class TestPerChunkSsdImportSurface:
 
     def test_check_block_dims_accepts_production_404m_shape(self):
         _check_block_dims(P=64, N=64, chunk_size=64)
+
+
+# -----------------------------------------------------------------------------
+# Autograd plumbing (CPU) — kernel forward substituted with the reference.
+# -----------------------------------------------------------------------------
+class TestPerChunkSsdAutogradPlumbing:
+    """Gradcheck the autograd Function plumbing (grad_outputs injection) on CPU
+    by substituting the pure-PyTorch per-chunk math for the kernel forward."""
+
+    @staticmethod
+    def _inputs(dtype=torch.complex128):
+        torch.manual_seed(5)
+        B, n_chunks, C, H, N, P = 1, 2, 4, 2, 4, 3
+        Bc = torch.randn(B, n_chunks, C, H, N, dtype=dtype, requires_grad=True)
+        Cc = torch.randn(B, n_chunks, C, H, N, dtype=dtype, requires_grad=True)
+        Xc = torch.randn(B, n_chunks, C, H, P, dtype=dtype, requires_grad=True)
+        A_log = (torch.randn(B, n_chunks, C, H, dtype=dtype) * 0.1).detach().requires_grad_(True)
+        decay = torch.exp(A_log[:, :, -1:, :] - A_log).detach().requires_grad_(True)
+        return Bc, Cc, Xc, A_log, decay
+
+    def test_backward_gradcheck_cpu(self, monkeypatch):
+        from models import ssd_triton as st
+        monkeypatch.setattr(st, "_per_chunk_ssd_triton_forward", st.per_chunk_ssd_pytorch)
+
+        def fn(bc, cc, xc, al, de):
+            y, s = st._PerChunkSSDTriton.apply(bc, cc, xc, al, de)
+            return y.real.sum() + s.real.sum()
+
+        assert torch.autograd.gradcheck(fn, self._inputs())
+
+    def test_backward_propagates_to_content_path_cpu(self, monkeypatch):
+        from models import ssd_triton as st
+        monkeypatch.setattr(st, "_per_chunk_ssd_triton_forward", st.per_chunk_ssd_pytorch)
+        Bc, Cc, Xc, A_log, decay = self._inputs(torch.complex64)
+        y, s = st._PerChunkSSDTriton.apply(Bc, Cc, Xc, A_log, decay)
+        (y.real.sum() + s.real.sum()).backward()
+        for name, t in [("Bc", Bc), ("Cc", Cc), ("Xc", Xc), ("A_log", A_log), ("decay", decay)]:
+            assert t.grad is not None, f"{name} grad is None"
+            assert torch.isfinite(t.grad).all(), f"{name} grad has non-finite values"
+        assert Xc.grad.abs().sum() > 0, "Xc grad is zero — token-content path disconnected"
 
 
 # -----------------------------------------------------------------------------
@@ -231,11 +267,7 @@ class TestPerChunkSsdKernelGPU:
         Xc = torch.randn(B, n_chunks, C, H, P, dtype=torch.complex64, device="cuda")
         A_log = torch.randn(B, n_chunks, C, H, dtype=torch.complex64, device="cuda") * 0.1
         decay_states = torch.exp(A_log[:, :, -1:, :] - A_log)
-        B_t = Bc.reshape(B, n_chunks * C, H, N)
-        C_t = Cc.reshape(B, n_chunks * C, H, N)
-        A = (torch.randn(H, dtype=torch.complex64, device="cuda") - 1.0)
-        dt = torch.zeros(B, n_chunks * C, H, device="cuda")
-        Y_tri, S_tri = per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states, B_t, C_t, A, dt, chunk_size=C)
+        Y_tri, S_tri = per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states)
         Y_ref, S_ref = per_chunk_ssd_pytorch(Bc, Cc, Xc, A_log, decay_states)
         assert torch.allclose(Y_tri, Y_ref, atol=1e-3), f"Y_diag max diff = {(Y_tri - Y_ref).abs().max().item()}"
         assert torch.allclose(S_tri, S_ref, atol=1e-3), f"state max diff = {(S_tri - S_ref).abs().max().item()}"
@@ -248,11 +280,7 @@ class TestPerChunkSsdKernelGPU:
         Xc = torch.randn(B, n_chunks, C, H, P, dtype=torch.complex64, device="cuda")
         A_log = torch.randn(B, n_chunks, C, H, dtype=torch.complex64, device="cuda") * 0.1
         decay_states = torch.exp(A_log[:, :, -1:, :] - A_log)
-        B_t = Bc.reshape(B, n_chunks * C, H, N)
-        C_t = Cc.reshape(B, n_chunks * C, H, N)
-        A = (torch.randn(H, dtype=torch.complex64, device="cuda") - 1.0)
-        dt = torch.zeros(B, n_chunks * C, H, device="cuda")
-        Y_tri, S_tri = per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states, B_t, C_t, A, dt, chunk_size=C)
+        Y_tri, S_tri = per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states)
         Y_ref, S_ref = per_chunk_ssd_pytorch(Bc, Cc, Xc, A_log, decay_states)
         assert torch.allclose(Y_tri, Y_ref, atol=1e-2)
         assert torch.allclose(S_tri, S_ref, atol=1e-2)
@@ -265,11 +293,7 @@ class TestPerChunkSsdKernelGPU:
         Xc = torch.randn(B, n_chunks, C, H, P, dtype=torch.complex64, device="cuda")
         A_log = torch.randn(B, n_chunks, C, H, dtype=torch.complex64, device="cuda") * 0.1
         decay_states = torch.exp(A_log[:, :, -1:, :] - A_log)
-        B_t = Bc.reshape(B, n_chunks * C, H, N)
-        C_t = Cc.reshape(B, n_chunks * C, H, N)
-        A = (torch.randn(H, dtype=torch.complex64, device="cuda") - 1.0)
-        dt = torch.zeros(B, n_chunks * C, H, device="cuda")
-        Y_tri, S_tri = per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states, B_t, C_t, A, dt, chunk_size=C)
+        Y_tri, S_tri = per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states)
         Y_ref, S_ref = per_chunk_ssd_pytorch(Bc, Cc, Xc, A_log, decay_states)
         assert Y_tri.shape == (B, n_chunks, C, H, P)
         assert torch.allclose(Y_tri, Y_ref, atol=1e-2), f"Y_diag max diff = {(Y_tri - Y_ref).abs().max().item()}"
@@ -278,18 +302,38 @@ class TestPerChunkSsdKernelGPU:
     def test_autograd_backward_runs(self):
         torch.manual_seed(3)
         B, n_chunks, C, H, N, P = 1, 1, 16, 2, 16, 16
-        Bc = torch.randn(B, n_chunks, C, H, N, dtype=torch.complex64, device="cuda")
-        Cc = torch.randn(B, n_chunks, C, H, N, dtype=torch.complex64, device="cuda")
-        Xc = torch.randn(B, n_chunks, C, H, P, dtype=torch.complex64, device="cuda")
-        A_log = torch.randn(B, n_chunks, C, H, dtype=torch.complex64, device="cuda") * 0.1
-        decay_states = torch.exp(A_log[:, :, -1:, :] - A_log)
-        B_t = Bc.reshape(B, n_chunks * C, H, N).requires_grad_(True)
-        C_t = Cc.reshape(B, n_chunks * C, H, N).requires_grad_(True)
-        A = (torch.randn(H, dtype=torch.complex64, device="cuda") - 1.0).requires_grad_(True)
-        dt = torch.zeros(B, n_chunks * C, H, device="cuda", requires_grad=True)
-        Y, S = per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states, B_t, C_t, A, dt, chunk_size=C)
-        loss = Y.real.sum() + S.real.sum()
-        loss.backward()
-        for name, g in [("B_t", B_t.grad), ("C_t", C_t.grad), ("A", A.grad), ("dt", dt.grad)]:
-            assert g is not None, f"{name} grad is None"
-            assert torch.isfinite(g).all(), f"{name} grad has non-finite values"
+        Bc = torch.randn(B, n_chunks, C, H, N, dtype=torch.complex64, device="cuda", requires_grad=True)
+        Cc = torch.randn(B, n_chunks, C, H, N, dtype=torch.complex64, device="cuda", requires_grad=True)
+        Xc = torch.randn(B, n_chunks, C, H, P, dtype=torch.complex64, device="cuda", requires_grad=True)
+        A_log = torch.randn(B, n_chunks, C, H, dtype=torch.complex64, device="cuda", requires_grad=True) * 0.1
+        decay_states = torch.exp(A_log[:, :, -1:, :] - A_log).detach().requires_grad_(True)
+        Y, S = per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states)
+        (Y.real.sum() + S.real.sum()).backward()
+        for name, t in [("Bc", Bc), ("Cc", Cc), ("Xc", Xc), ("A_log", A_log), ("decay", decay_states)]:
+            assert t.grad is not None, f"{name} grad is None"
+            assert torch.isfinite(t.grad).all(), f"{name} grad has non-finite values"
+        assert Xc.grad.abs().sum() > 0, "Xc grad is zero — token-content path disconnected"
+
+    def test_backward_matches_pytorch_dispatch(self):
+        """End-to-end backward through ssd_complex_chunkwise must match the
+        pytorch dispatch grad-for-grad (x/A/B/C/dt — incl. the token-content
+        path the v1 stub dropped)."""
+        torch.manual_seed(7)
+        B, T, H, D, N, C = 2, 32, 2, 8, 8, 8
+        x = torch.randn(B, T, H, D, dtype=torch.complex64, device="cuda")
+        A = torch.randn(H, dtype=torch.complex64, device="cuda") - 1.0
+        B_t = torch.randn(B, T, H, N, dtype=torch.complex64, device="cuda")
+        C_t = torch.randn(B, T, H, N, dtype=torch.complex64, device="cuda")
+        dt = torch.randn(B, T, H, device="cuda") * 0.1
+
+        def grads(dispatch):
+            xs = [t.clone().requires_grad_(True) for t in (x, A, B_t, C_t, dt)]
+            y = ssd_complex_chunkwise(*xs, chunk_size=C, ssd_dispatch=dispatch)
+            y.real.sum().backward()
+            return [t.grad for t in xs]
+
+        g_p, g_t = grads("pytorch"), grads("triton")
+        for name, gp, gt in zip(("x", "A", "B_t", "C_t", "dt"), g_p, g_t):
+            assert torch.allclose(gp, gt, atol=1e-2, rtol=1e-2), (
+                f"{name} grad mismatch: max diff = {(gp - gt).abs().max().item()}"
+            )

@@ -215,38 +215,37 @@ def _per_chunk_ssd_triton_forward(
 
 
 class _PerChunkSSDTriton(torch.autograd.Function):
-    """v1: forward = fused per-chunk Triton; backward = reference-stub."""
+    """Fused per-chunk forward; backward recomputes the same math in PyTorch
+    and seeds it with the true downstream gradients (grad_outputs)."""
 
     @staticmethod
-    def forward(ctx, Bc, Cc, Xc, A_log, decay_states, B_t, C_t, A, dt, chunk_size):
+    def forward(ctx, Bc, Cc, Xc, A_log, decay_states):
         Y_diag, state = _per_chunk_ssd_triton_forward(Bc, Cc, Xc, A_log, decay_states)
-        ctx.save_for_backward(B_t, C_t, A, dt)
-        ctx.chunk_size = chunk_size
+        ctx.save_for_backward(Bc, Cc, Xc, A_log, decay_states)
         return Y_diag, state
 
     @staticmethod
     def backward(ctx, grad_y_diag, grad_state):
-        B_t, C_t, A, dt = ctx.saved_tensors
-        chunk_size = ctx.chunk_size
+        Bc, Cc, Xc, A_log, decay_states = ctx.saved_tensors
         with torch.enable_grad():
-            b = B_t.detach().requires_grad_(True)
-            c = C_t.detach().requires_grad_(True)
-            a = A.detach().requires_grad_(True)
-            d = dt.detach().requires_grad_(True)
-            from .ssd_complex import ssd_complex_chunkwise
-            B_, T, H, _ = B_t.shape
-            x_dummy = torch.zeros(B_, T, H, 1, dtype=torch.complex64, device=B_t.device)
-            y = ssd_complex_chunkwise(x_dummy, a, b, c, d, chunk_size=chunk_size)
-            scalar_loss = y.sum()
-        grads = torch.autograd.grad(scalar_loss, [b, c, a, d], allow_unused=True)
-        return None, None, None, None, None, *grads, None
+            b = Bc.detach().requires_grad_(True)
+            c = Cc.detach().requires_grad_(True)
+            x = Xc.detach().requires_grad_(True)
+            a = A_log.detach().requires_grad_(True)
+            d = decay_states.detach().requires_grad_(True)
+            Y_diag_ref, state_ref = per_chunk_ssd_pytorch(b, c, x, a, d)
+        g_y = grad_y_diag if grad_y_diag is not None else torch.zeros_like(Y_diag_ref)
+        g_s = grad_state if grad_state is not None else torch.zeros_like(state_ref)
+        grads = torch.autograd.grad(
+            (Y_diag_ref, state_ref), (b, c, x, a, d),
+            grad_outputs=(g_y, g_s), allow_unused=True,
+        )
+        return grads
 
 
 def per_chunk_ssd_triton(
     Bc: torch.Tensor, Cc: torch.Tensor, Xc: torch.Tensor,
     A_log: torch.Tensor, decay_states: torch.Tensor,
-    B_t: torch.Tensor, C_t: torch.Tensor, A: torch.Tensor, dt: torch.Tensor,
-    chunk_size: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Public entry point. Returns (Y_diag, state) for the per-chunk pass."""
     if not HAS_TRITON:
@@ -255,6 +254,4 @@ def per_chunk_ssd_triton(
             "Install with `pip install triton` (Linux + CUDA only). "
             "For CPU/Mac, set ssd_dispatch='pytorch' in the model config."
         )
-    return _PerChunkSSDTriton.apply(
-        Bc, Cc, Xc, A_log, decay_states, B_t, C_t, A, dt, chunk_size,
-    )
+    return _PerChunkSSDTriton.apply(Bc, Cc, Xc, A_log, decay_states)

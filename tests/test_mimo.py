@@ -2,6 +2,7 @@
 import torch
 
 from models.mimo import MIMO
+from models.transformer import Mamba3Transformer, ModelConfig
 
 
 def test_mimo_identity_init():
@@ -11,6 +12,17 @@ def test_mimo_identity_init():
     y = m(x)
     assert y.shape == x.shape
     assert torch.allclose(y, x, atol=1e-6), f"max diff = {(y - x).abs().max().item()}"
+
+
+def test_mimo_identity_survives_transformer_init():
+    cfg = ModelConfig(
+        vocab_size=50, d_model=32, n_layers=1, n_heads=4,
+        head_dim=16, state_dim=4, chunk_size=4, ffn_dim=64,
+        max_seq_len=16, weight_tying=True,
+    )
+    m = Mamba3Transformer(cfg)
+    mix = m.layers[0].mimo.mix.weight.detach()
+    assert torch.equal(mix, torch.eye(4 * 16)), "MIMO identity init overwritten by _init_weights"
 
 
 def test_mimo_shape_and_finite():

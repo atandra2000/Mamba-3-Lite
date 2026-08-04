@@ -43,6 +43,7 @@ class TrainingConfig:
     max_grad_norm: float = 1.0
     grad_checkpoint: bool = True
     compile_model: bool = True
+    compile_mode: str = "max-autotune"
     save_every: int = 4000
     log_every: int = 50
     nan_guard: bool = True
@@ -153,7 +154,10 @@ def train_step(
 
 def _enforce_triton_env_var(model_config: dict, log) -> None:
     """Force triton dispatch back to pytorch if ENABLE_TRITON_KERNELS != 1."""
-    if os.environ.get("ENABLE_TRITON_KERNELS", "0") != "1" and             model_config.get("ssd_dispatch") == "triton":
+    if (
+        os.environ.get("ENABLE_TRITON_KERNELS", "0") != "1"
+        and model_config.get("ssd_dispatch") == "triton"
+    ):
         log(
             "[warn] ssd_dispatch='triton' requires ENABLE_TRITON_KERNELS=1; "
             "forcing ssd_dispatch='pytorch' for this run."
@@ -177,7 +181,9 @@ class Pretrainer:
 
         self.amp_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float32
         self.ckpt_manager = CheckpointManager(config.checkpoint_dir)
-        self.logger = TrainingLogger(log_every=config.log_every, seq_len=config.max_seq_len)
+        self.logger = TrainingLogger(
+            log_every=config.log_every, seq_len=config.max_seq_len, batch_size=config.batch_size,
+        )
         self._opt_steps = 0
 
         self._log("Initialising model...")
@@ -189,7 +195,7 @@ class Pretrainer:
 
         training_model = raw_model
         if config.compile_model and hasattr(torch, "compile"):
-            compile_mode = os.environ.get("TORCH_COMPILE_MODE", "max-autotune")
+            compile_mode = os.environ.get("TORCH_COMPILE_MODE", config.compile_mode)
             self._log(f"Compiling model with torch.compile (mode={compile_mode})...")
             training_model = torch.compile(training_model, mode=compile_mode, fullgraph=False)
 
@@ -332,6 +338,7 @@ def main() -> None:
         max_grad_norm=t.get("grad_clip", 1.0),
         grad_checkpoint=t.get("grad_checkpoint", True) and not args.no_checkpoint,
         compile_model=t.get("compile", True) and not args.no_compile,
+        compile_mode=t.get("compile_mode", "max-autotune"),
         save_every=t.get("save_interval", 4000),
         log_every=t.get("log_interval", 50),
         nan_guard=t.get("nan_guard", True),

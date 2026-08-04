@@ -52,6 +52,8 @@ class Mamba3Transformer(nn.Module):
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
+        if getattr(module, "_identity_init", False):
+            return
         if isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, mean=0.0, std=self.cfg.init_std)
         elif isinstance(module, nn.Embedding):

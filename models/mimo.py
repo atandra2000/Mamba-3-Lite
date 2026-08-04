@@ -14,6 +14,8 @@ class MIMO(nn.Module):
         self.head_dim = head_dim
         self.mix = nn.Linear(n_heads * head_dim, n_heads * head_dim, bias=False)
         nn.init.eye_(self.mix.weight)
+        # Mamba3Transformer._init_weights skips Linears flagged this way.
+        self.mix._identity_init = True
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """(B, T, H, D) -> (B, T, H, D)."""
