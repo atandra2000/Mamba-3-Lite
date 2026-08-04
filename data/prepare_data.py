@@ -83,7 +83,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Mamba-3-Lite data prep (delegates to universal pipeline)"
     )
-    parser.add_argument("--stage", choices=["pretrain"], default="pretrain")
     parser.add_argument("--mixture", default=None)
     parser.add_argument("--data-config", default=None)
     parser.add_argument("--data-root", default=None)
