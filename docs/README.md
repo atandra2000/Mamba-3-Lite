@@ -1,4 +1,4 @@
-# Mamba-3-Lite Docs
+# Mamba-3-Lite — Documentation Index
 
 > The full documentation tree for the ~434M-param, pure-PyTorch Mamba-3
 > reproduction with complex-valued SSD state spaces. Everything is
