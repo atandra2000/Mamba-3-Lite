@@ -68,6 +68,31 @@ $$h_{t+1} = \underbrace{e^{A\Delta_t}}_{=:\ \bar A_t}\, h_t \;+\; \underbrace{A^
 
 Two things are visible here. **Where dt enters:** (i) the decay $\bar A_t = e^{A \Delta_t}$, and (ii) the input scale $\bar B_t = A^{-1}(\bar A_t - I) B$. Note the small-$\Delta_t$ limit: $\bar A_t \to I$ and $\bar B_t \to \Delta_t\, B$ — the recurrence reduces to a forward-Euler step with step size $\Delta_t$. So $\Delta_t$ is genuinely a *learned step size*: it chooses how far the continuous dynamics advance per token, which the model can modulate per position.
 
+**Discretization Schemes Comparison.** The zero-order hold assumption is compared below against standard numerical ODE integrators:
+
+| Discretization Method | Discrete State Matrix $\bar A$ | Discrete Input Matrix $\bar B$ | Stability Condition ($\mathrm{Re}(A) < 0$) |
+|---|---|---|---|
+| **Zero-Order Hold (ZOH)** | $e^{A\Delta_t}$ | $A^{-1}(e^{A\Delta_t}-I)B$ | Unconditionally stable ($\forall \Delta_t > 0 \implies \|\bar A\| < 1$) |
+| **Forward Euler** | $I + A\Delta_t$ | $\Delta_t B$ | Conditionally stable ($\Delta_t < 2 / \|A\|$; diverges for large $\Delta_t$) |
+| **Bilinear / Tustin** | $(I - \frac{\Delta_t}{2}A)^{-1}(I + \frac{\Delta_t}{2}A)$ | $(I - \frac{\Delta_t}{2}A)^{-1} \Delta_t B$ | Unconditionally stable (maps LHP to unit disk) |
+
+ZOH is chosen because token steps are piecewise constant signals in discrete time, and $e^{A\Delta_t}$ provides exact integration of the continuous ODE over interval $[t, t+\Delta_t]$ without truncation error.
+
+```
+Continuous State Trajectory h(t) sampled under Zero-Order Hold (ZOH):
+
+  h(t) ^
+       |            /--- h(t+Δt) = e^{A Δt} h(t) + \int_0^{Δt} e^{A (Δt - τ)} B x_t dτ
+       |           /
+       |   h(t)   /
+       |    *----/
+       |    |   /|
+       |    |  / |
+       +----+----+---------------------------------> time t
+            t   t+Δt
+            |______|  Input x(τ) = x_t held constant over [t, t+Δt]
+```
+
 **The absorption convention.** The second factor, $A^{-1}(\bar A_t - I)$, is a diagonal operator that depends only on $A$ and $\Delta_t$. Since $B$ is a learned (and, in Mamba, input-dependent) projection, multiplying $B$ by this diagonal factor is equivalent to choosing a different learned $B$: the family of achievable $\bar B_t$ equals the family of achievable $B$. The Mamba-2/SSD line therefore drops the factor and keeps the recurrence
 
 $$h_{t+1} = \bar A_t\, h_t + B_t\, x_t, \qquad \bar A_t = e^{A \Delta_t},$$
@@ -78,7 +103,7 @@ which is precisely what this repo implements in `models/ssd_complex.py:_discreti
 
 $$\Delta_t = \operatorname{softplus}(z_t) = \ln\big(1 + e^{z_t}\big) > 0 \quad \forall z_t,$$
 
-which is (i) strictly positive everywhere, (ii) smooth with derivative $\sigma(z_t) = (1 + e^{-z_t})^{-1} \in (0,1)$ — nonzero everywhere, so no dead gradients, unlike ReLU's exactly-zero flat region, and (iii) asymptotically linear: $\operatorname{softplus}(z) \to z$ as $z \to +\infty$, so large step sizes grow linearly rather than exponentially (no overflow from the step size itself). Contrast with the naive alternative $e^{z}$: it overflows for $z \gtrsim 88$ and has vanishing gradient as $z \to -\infty$. One subtlety worth flagging: $\operatorname{softplus}(0) = \ln 2 \approx 0.693$, so there is **no "dt = 0" state** — even a raw projection of exactly zero yields a step size of $\ln 2$, i.e. a per-token decay of $e^{-\ln 2} = 1/2$ at initialization. The step size asymptotes to 0 as $z \to -\infty$ but never reaches it. (The other half of the stability condition — that $\mathrm{Re}(A) \le 0$ — is the parameter init's job; `nn.init.constant_(self.A, -1.0)` guarantees it at init, and training may move it, which is what the NaN guard in `training/pretrain.py` exists for; see [docs/concepts/block-and-stability.md](../concepts/block-and-stability.md).)
+which is (i) strictly positive everywhere, (ii) smooth with derivative $\sigma(z_t) = (1 + e^{-z_t})^{-1} \in (0,1)$ — nonzero everywhere, so no dead gradients, unlike ReLU's exactly-zero flat region, and (iii) asymptotically linear: $\operatorname{softplus}(z) \to z$ as $z \to +\infty$, so large step sizes grow linearly rather than exponentially (no overflow from the step size itself). Contrast with the naive alternative $e^{z}$: it overflows for $z \gtrsim 88$ and has vanishing gradient as $z \to -\infty$. One subtlety worth flagging: $\operatorname{softplus}(0) = \ln 2 \approx 0.693$, so there is **no "dt = 0" state** — even a raw projection of exactly zero yields a step size of $\ln 2$, i.e. a per-token decay of $e^{-\ln 2} = 1/2$ at initialization.
 
 ### 4.3 Diagonal A: the associative scan and the convolution link
 

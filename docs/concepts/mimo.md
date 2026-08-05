@@ -170,10 +170,38 @@ Why exactly here:
 - **Before `out_proj`.** `out_proj` is `nn.Linear(n_heads * head_dim, d_model, bias=False)` — with $d_{\text{model}} = H \cdot D = 1024$ it is a dense $1024 \times 1024$ map, and after it the head axes no longer exist. A mixer placed after `out_proj` would be a second dense map on the same vector space — algebraically redundant, since two consecutive dense maps compose into one. Placing the mixer *before* `out_proj` gives the per-head readout its own dedicated mixing matrix, and keeps `out_proj` as the "aggregate heads into model space" map.
 - **The double flatten.** `MIMO.forward` returns `(B, T, H, D)`, and the block flattens again (`y.reshape(B, T, H * D)`) before `out_proj`. A slightly redundant round trip — `MIMO`'s contract is the 4-D shape, `out_proj`'s is the 2-D one — but harmless: both reshapes are views on the GEMM output, and the code reads clearly.
 
-```mermaid
-flowchart LR
-    X["x (B,T,d_model)"] --> N1["norm1"] --> IP["in_proj"] --> S["SSD scan (per-head, complex state)"]
-    S --> Y["y (B,T,H,D) real"] --> M["MIMO mixer: y @ Wᵀ"] --> OP["out_proj"] --> R["+ residual"]
+```
+   ┌────────────────────────────────────┐
+   │ x (B,T,d_model)                    │
+   └──────────────────┬─────────────────┘
+                      ▼
+   ┌──────────────────┴─────────────────┐
+   │ norm1                              │
+   └──────────────────┬─────────────────┘
+                      ▼
+   ┌──────────────────┴─────────────────┐
+   │ in_proj                            │
+   └──────────────────┬─────────────────┘
+                      ▼
+   ┌──────────────────┴─────────────────┐
+   │ SSD scan (per-head, complex state) │
+   └──────────────────┬─────────────────┘
+                      ▼
+   ┌──────────────────┴─────────────────┐
+   │ y (B,T,H,D) real                   │
+   └──────────────────┬─────────────────┘
+                      ▼
+   ┌──────────────────┴─────────────────┐
+   │ MIMO mixer: y @ Wᵀ                 │
+   └──────────────────┬─────────────────┘
+                      ▼
+   ┌──────────────────┴─────────────────┐
+   │ out_proj                           │
+   └──────────────────┬─────────────────┘
+                      ▼
+   ┌──────────────────┴─────────────────┐
+   │ + residual                         │
+   └────────────────────────────────────┘
 ```
 
 ## 6. Why no sequence cost: the attention contrast

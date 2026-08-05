@@ -153,7 +153,37 @@ the code's `Y_off = torch.einsum("bclhn,bchpn,bclh->bclhp", Cc, states, torch.ex
 $$Y_{c,l} = Y^{\mathrm{diag}}_{c,l} + Y^{\mathrm{off}}_{c,l} = \sum_{s\le cC+l} e^{\Lambda(cC+l)-\Lambda(s)}\, C_{c,l} B_s x_s = y_{cC+l},$$
 
 which is exactly the unrolled recurrence. This is the **SSD decomposition**: the sequential scan is replaced by (a) per-chunk matrix products ($Y^{\mathrm{diag}}$, the per-chunk states $S_c$, the readout $Y^{\mathrm{off}}$) and (b) one short scan over $n = T/C$ chunks ($H_c$). A full einsum-by-einsum account of the implementation, including shapes and the padding contract, is in [docs/concepts/ssd-theory.md](docs/concepts/ssd-theory.md).
+Multiplying the three exponentials reproduces the global decay $\exp(\Lambda(cC{+}l)-\Lambda(c'C{+}j))$ term by term, so
 
+$$Y_{c,l} = Y^{\mathrm{diag}}_{c,l} + Y^{\mathrm{off}}_{c,l} = \sum_{s\le cC+l} e^{\Lambda(cC+l)-\Lambda(s)}\, C_{c,l} B_s x_s = y_{cC+l},$$
+
+which is exactly the unrolled recurrence.
+
+### 4.6 Visual Tensor Contraction Map of Chunkwise Einsums
+
+```
+Intra-Chunk Path:
+  Cc (B, n_c, C, H, N) --\
+  Bc (B, n_c, C, H, N) ---> [ einsum: bclhn,bcshn,bchls,bcshp -> bclhp ] ---> Y_diag (B, n_c, C, H, D)
+  L  (B, n_c, H, C, C) --/
+  Xc (B, n_c, C, H, D) --/
+
+End-of-Chunk State & Inter-Chunk Scan:
+  Bc, decay_states, Xc -> [ einsum: bclhn,bclh,bclhp -> bchpn ] -> states (B, n_c, H, D, N)
+  states, decay_chunk  -> [ einsum: bhzc,bchpn -> bzhpn ]       -> states (decayed across chunks)
+
+Inter-Chunk Output Path:
+  Cc, states, exp(A_cumsum) -> [ einsum: bclhn,bchpn,bclh -> bclhp ] -> Y_off (B, n_c, C, H, D)
+
+Final Output:
+  Y = Y_diag + Y_off  ===> reshape back to (B, T, H, D)
+```
+
+### 4.7 Complex Autograd and Wirtinger Derivatives
+
+Because $B_t, C_t, X_c, A$ are complex tensors in `torch.complex64`, PyTorch autograd handles backpropagation using **Wirtinger derivatives** ($\frac{\partial \mathcal{L}}{\partial z} = \frac{1}{2}(\frac{\partial \mathcal{L}}{\partial x} - i \frac{\partial \mathcal{L}}{\partial y})$ for $z = x + iy$).
+
+When writing custom autograd functions (such as `_PerChunkSSDTriton` in `models/ssd_triton.py:per_chunk_ssd_triton`), PyTorch tracks complex gradients through real and imaginary tensor channels. The backward pass must compute downstream gradients with respect to both real and imaginary inputs, taking care not to detach tensor graphs prematurely or pass un-instantiated zero gradients.
 ## 5. Complexity: what chunking buys
 
 **Sequential scan (naive).** $T$ serial steps; per step and per $(b,h)$: $O(ND)$ flops (state scaling, outer product, readout) and $O(ND)$ complex numbers of state traffic; total $O(B\,H\,T\,N\,D)$ flops with a critical path of length $T$ and negligible arithmetic intensity. The scan is bandwidth-bound and latency-bound.
