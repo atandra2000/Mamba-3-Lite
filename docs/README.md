@@ -1,9 +1,6 @@
 # Mamba-3-Lite — Documentation Index
 
-> The full documentation tree for the ~434M-param, pure-PyTorch Mamba-3
-> reproduction with complex-valued SSD state spaces. Everything is
-> **symbol-anchored to the code** and machine-checked by
-> `tests/test_doc_refs.py` (`--coverage --links` in CI).
+> The full documentation tree for the ~434M-param, pure-PyTorch Mamba-3 reproduction with complex-valued SSD state spaces. Everything is **symbol-anchored to the code** and machine-checked by `tests/test_doc_refs.py` (`--coverage --links` in CI).
 
 ## Reading paths
 
@@ -52,9 +49,7 @@
 
 ## Code → doc map
 
-Every public symbol in the coverage modules is cited somewhere in this tree
-(enforced by `tests/test_doc_refs.py --coverage`). The map below is the
-reverse index: which doc documents which file.
+Every public symbol in the coverage modules is cited somewhere in this tree (enforced by `tests/test_doc_refs.py --coverage`). The map below is the reverse index: which doc documents which file.
 
 | Source file | Documented in |
 |---|---|

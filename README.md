@@ -137,12 +137,7 @@ pip install -r requirements.txt
 python3 -m pytest tests/ -v
 ```
 
-37 tests cover the complex chunkwise SSD (vs naive scan oracle), MIMO mixer
-identity init (in the class and inside the full model), transformer forward,
-grad-checkpoint wiring, one-step training on dummy data, the Triton kernel
-reference + dispatch guards, an autograd gradcheck of the kernel's backward
-plumbing, and the doc↔code alignment checker. 32 pass on CPU in <3s; 5
-GPU-gated tests skip.
+37 tests cover the complex chunkwise SSD (vs naive scan oracle), MIMO mixer identity init (in the class and inside the full model), transformer forward, grad-checkpoint wiring, one-step training on dummy data, the Triton kernel reference + dispatch guards, an autograd gradcheck of the kernel's backward plumbing, and the doc↔code alignment checker. 32 pass on CPU in <3s; 5 GPU-gated tests skip.
 
 ### 3. Launch a full pretraining run
 
@@ -218,11 +213,7 @@ This repo intentionally avoids:
 - ❌ HuggingFace Trainer / PyTorch Lightning
 - ❌ Pickle checkpoints (uses `safetensors` + atomic writes)
 
-The single sanctioned exception: the opt-in `per_chunk_ssd_triton` kernel
-(`models/ssd_triton.py`, gated behind `ssd_dispatch='triton'` +
-`ENABLE_TRITON_KERNELS=1` — see AGENTS.md §1). Everything else is
-**pure PyTorch** (`torch.*matmul`, `torch.*einsum`, `torch.*fft` where
-applicable). This makes the code:
+The single sanctioned exception: the opt-in `per_chunk_ssd_triton` kernel (`models/ssd_triton.py`, gated behind `ssd_dispatch='triton'` + `ENABLE_TRITON_KERNELS=1` — see AGENTS.md §1). Everything else is **pure PyTorch** (`torch.*matmul`, `torch.*einsum`, `torch.*fft` where applicable). This makes the code:
 
 - **Auditable** — every line is plain tensor ops.
 - **Hardware-portable** — runs on CPU, MPS, CUDA, AMD ROCm, TPU.
@@ -275,20 +266,13 @@ Mamba-3-Lite/
 └── pytest.ini
 ```
 
-> **Test suite status.** `tests/` contains 37 tests: the complex chunkwise
-> SSD (vs naive scan oracle), MIMO mixer identity init (class-level and
-> inside the full model), the Triton kernel reference + dispatch guards +
-> autograd gradcheck, transformer forward, grad-checkpoint wiring,
-> one-step training on dummy data, and the doc↔code alignment checker.
-> 32 pass on CPU; 5 are GPU-gated.
-> See `docs/concepts/ssd-theory.md` for the full mathematical derivation.
+> **Test suite status.** `tests/` contains 37 tests: the complex chunkwise SSD (vs naive scan oracle), MIMO mixer identity init (class-level and inside the full model), the Triton kernel reference + dispatch guards + autograd gradcheck, transformer forward, grad-checkpoint wiring, one-step training on dummy data, and the doc↔code alignment checker. 32 pass on CPU; 5 are GPU-gated. See `docs/concepts/ssd-theory.md` for the full mathematical derivation.
 
 ---
 
 ## 📖 Documentation
 
-The full doc tree lives in [`docs/`](docs/README.md), machine-checked for
-doc↔code alignment by `tests/test_doc_refs.py` (`--coverage --links`):
+The full doc tree lives in [`docs/`](docs/README.md), machine-checked for doc↔code alignment by `tests/test_doc_refs.py` (`--coverage --links`):
 
 | Area | Where |
 |---|---|
@@ -301,9 +285,7 @@ doc↔code alignment by `tests/test_doc_refs.py` (`--coverage --links`):
 
 ## 🧪 Verification
 
-The Mamba-3 SSD math is verified by the **test suite** in `tests/` and by
-inline assertions in `models/ssd_complex.py`. Manual
-smoke checks:
+The Mamba-3 SSD math is verified by the **test suite** in `tests/` and by inline assertions in `models/ssd_complex.py`. Manual smoke checks:
 
 ```bash
 python3 -c "
