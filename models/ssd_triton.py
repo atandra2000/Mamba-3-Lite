@@ -30,10 +30,10 @@ def per_chunk_ssd_pytorch(
     Bc: torch.Tensor, Cc: torch.Tensor, Xc: torch.Tensor,
     A_log: torch.Tensor, decay_states: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Pure-PyTorch reference for the per-chunk kernel.
+    """Mirror the Triton per-chunk pass using ordinary tensor operations.
 
-    A_log is (B, n_chunks, C, H). L = exp(cumsum(A_log)[l] - cumsum(A_log)[s])
-    matches the chunkwise linear-projection formula in ssd_complex_chunkwise.
+    `A_log` is `(B, chunks, C, H)`; the causal matrix `L` contains the decay
+    from source position `s` to destination `l` within one chunk.
     """
     C = Bc.shape[2]
     causal = torch.tril(torch.ones(C, C, device=Bc.device, dtype=torch.bool))
@@ -56,7 +56,7 @@ if HAS_TRITON:
         n_chunks, H, T_padded,
         BLOCK_C: tl.constexpr, BLOCK_P: tl.constexpr, BLOCK_N: tl.constexpr,
     ):
-        """One program per (B, c, H). Reads chunk data, writes Y_diag and state."""
+        """Compute one batch/chunk/head tile, including local outputs and state."""
         b_idx = tl.program_id(0)
         c_idx = tl.program_id(1)
         h_idx = tl.program_id(2)
@@ -99,7 +99,7 @@ if HAS_TRITON:
         d_re = tl.load(dst_re_ptr + a_base)
         d_im = tl.load(dst_im_ptr + a_base)
 
-        # L = exp(cumsum(A_log)[l] - cumsum(A_log)[s]) * (l >= s)
+        # Prefix differences produce all causal source-to-destination decays.
         a_re_cs = tl.cumsum(a_re, axis=0)
         a_im_cs = tl.cumsum(a_im, axis=0)
         seg_re = a_re_cs[:, None] - a_re_cs[None, :]
@@ -108,8 +108,7 @@ if HAS_TRITON:
         L_re = tl.where(causal, tl.exp(seg_re) * tl.cos(seg_im), 0.0)
         L_im = tl.where(causal, tl.exp(seg_re) * tl.sin(seg_im), 0.0)
 
-        # Cb = Cc @ Bc.T in real arithmetic: Cb.re = Cc.re @ Bc.re.T - Cc.im @ Bc.im.T
-        # Bc.T[n, l] = Bc[l, n] = ptr[l*N + n]; load as (N, C) block with row=n, col=l
+        # Form Cc @ Bc.T explicitly because Triton has no complex matmul.
         bc_t_base = (
             b_idx * n_chunks * BLOCK_C * H * BLOCK_N
             + c_idx * BLOCK_C * H * BLOCK_N
@@ -126,7 +125,7 @@ if HAS_TRITON:
         Y_re = tl.dot(M_re, xc_re) - tl.dot(M_im, xc_im)
         Y_im = tl.dot(M_re, xc_im) + tl.dot(M_im, xc_re)
 
-        # state = Xc.T @ (decay_states * Bc) — Xc.T[p, l] = Xc[l, p] = ptr[l*P + p]
+        # Accumulate the chunk-end state as Xc.T @ (decay_states * Bc).
         w_re = d_re[:, None] * bc_re - d_im[:, None] * bc_im
         w_im = d_re[:, None] * bc_im + d_im[:, None] * bc_re
         xc_t_base = (
@@ -156,6 +155,7 @@ if HAS_TRITON:
 
 
 def _check_block_dims(P: int, N: int, chunk_size: int) -> None:
+    """Keep compile-time Triton tiles bounded for predictable resource use."""
     for name, dim in (("P", P), ("N", N), ("chunk_size", chunk_size)):
         if dim > _MAX_BLOCK:
             raise ValueError(
@@ -182,6 +182,7 @@ def _per_chunk_ssd_triton_forward(
     Bc: torch.Tensor, Cc: torch.Tensor, Xc: torch.Tensor,
     A_log: torch.Tensor, decay_states: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Launch the fused kernel and reassemble its split real/imag outputs."""
     B, n_chunks, C, H, N = Bc.shape
     P = Xc.shape[-1]
     _check_block_dims(P, N, C)
@@ -215,8 +216,7 @@ def _per_chunk_ssd_triton_forward(
 
 
 class _PerChunkSSDTriton(torch.autograd.Function):
-    """Fused per-chunk forward; backward recomputes the same math in PyTorch
-    and seeds it with the true downstream gradients (grad_outputs)."""
+    """Autograd bridge: use the fused forward and a differentiable reference backward."""
 
     @staticmethod
     def forward(ctx, Bc, Cc, Xc, A_log, decay_states):
@@ -247,7 +247,7 @@ def per_chunk_ssd_triton(
     Bc: torch.Tensor, Cc: torch.Tensor, Xc: torch.Tensor,
     A_log: torch.Tensor, decay_states: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Public entry point. Returns (Y_diag, state) for the per-chunk pass."""
+    """Return local chunk outputs and chunk-end states using the Triton backend."""
     if not HAS_TRITON:
         raise ImportError(
             "per_chunk_ssd_triton requires the `triton` package. "

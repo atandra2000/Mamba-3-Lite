@@ -1,4 +1,8 @@
-"""Complex SSD — the Mamba-3 sequence-mixing primitive."""
+"""Complex-valued SSD sequence mixing used by each Mamba-3 block.
+
+The chunkwise path is algebraically equivalent to the sequential reference while
+exposing independent chunks for efficient PyTorch or opt-in Triton execution.
+"""
 from __future__ import annotations
 
 import torch
@@ -6,13 +10,18 @@ import torch.nn.functional as F
 
 
 def _discretise(dt: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
+    """Convert continuous decay rates into per-token complex transition factors."""
     return torch.exp(F.softplus(dt) * A)
 
 
 def ssd_naive_complex(
     x: torch.Tensor, A: torch.Tensor, B_t: torch.Tensor, C_t: torch.Tensor, dt: torch.Tensor,
 ) -> torch.Tensor:
-    """O(T) sequential complex SSM scan — reference oracle for ssd_complex_chunkwise."""
+    """Run the token-by-token recurrence used as the chunkwise regression oracle.
+
+    Inputs use `(batch, time, heads, channels)` and complex state axes; the
+    deliberately simple O(T) loop makes numerical mismatches easy to diagnose.
+    """
     B_, T, H, D = x.shape
     N = B_t.shape[-1]
     A_bar = _discretise(dt, A)
@@ -29,11 +38,11 @@ def ssd_complex_chunkwise(
     chunk_size: int = 64,
     ssd_dispatch: str = "pytorch",
 ) -> torch.Tensor:
-    """Complex chunkwise SSD.
+    """Evaluate complex SSD by separating within-chunk and cross-chunk effects.
 
-    ssd_dispatch='pytorch': the original 5-einsum PyTorch chain.
-    ssd_dispatch='triton': per-chunk Y_diag and state fused into a single
-    Triton kernel; inter-chunk state propagation stays in PyTorch.
+    Padding makes the sequence divisible by `chunk_size`; outputs are unpadded
+    before return. The Triton option fuses the per-chunk projections, while the
+    recurrence between chunk states remains in PyTorch.
     """
     B_, T, H, D = x.shape
     N, C = B_t.shape[-1], chunk_size
@@ -75,21 +84,19 @@ def ssd_complex_chunkwise(
     chunk_decay = A_cumsum[:, :, -1, :]
     cd_perm = chunk_decay.permute(0, 2, 1).contiguous()
     cd_cumsum = torch.cumsum(cd_perm, dim=-1)
-    # cd_shift[z] = CD[z-1] with CD[-1] := 0: the total decay applied to the
-    # initial state as it travels through chunks 0..z-1.
+    # Prefix sums let every earlier chunk state be decayed to the current chunk
+    # without an explicit sequential loop.
     cd_shift = torch.cat([torch.zeros_like(cd_cumsum[..., :1]), cd_cumsum[..., :-1]], dim=-1)
-    # M[z, c] = exp(CD[z-1] - CD[c]) · 1[z > c]: decay applied to chunk c's
-    # end-of-chunk state while it travels through chunks c+1..z-1.
+    # The strict lower triangle excludes the current chunk: its local effect is
+    # already represented by Y_diag.
     cd_seg = cd_shift.unsqueeze(-1) - cd_cumsum.unsqueeze(-2)
     decay_chunk = torch.exp(cd_seg) * torch.tril(
         torch.ones(n_chunks, n_chunks, device=x.device, dtype=torch.bool), diagonal=-1,
     )
 
     states = torch.einsum("bhzc,bchpn->bzhpn", decay_chunk, states)
-    # The scan always starts from a fresh zero state (no initial_states param):
-    # before the first token nothing is known, and the linear recurrence makes
-    # zero init unbiased. The state predating chunk 0 therefore contributes
-    # nothing; only chunk states decay through chunks 0..z-1.
+    # There is no external initial state: the scan starts at zero, so only
+    # completed earlier chunks contribute to this cross-chunk term.
 
     Y_off = torch.einsum("bclhn,bchpn,bclh->bclhp", Cc, states, torch.exp(A_cumsum))
 

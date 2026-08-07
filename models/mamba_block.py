@@ -1,4 +1,8 @@
-"""Mamba-3 residual block: RMSNorm -> SSD Complex -> MIMO -> +Residual -> RMSNorm -> SwiGLU -> +Residual."""
+"""Mamba-3 residual block: complex SSD mixing followed by a gated FFN.
+
+The block uses pre-normalization and two residual paths; unlike Mamba-2 it has
+no causal convolution between the input projection and the state-space scan.
+"""
 from __future__ import annotations
 
 import torch
@@ -10,7 +14,11 @@ from .mimo import MIMO
 
 
 class Mamba3Block(nn.Module):
-    """One Mamba-3 layer with complex state, MIMO mixing, and no causal conv."""
+    """One Mamba-3 layer with complex state, MIMO mixing, and no causal conv.
+
+    The input projection emits SSD input channels, complex B/C parameters, and
+    one positive-step parameter per head in that order.
+    """
 
     def __init__(self, cfg: dict, layer_idx: int = 0):
         super().__init__()
@@ -40,6 +48,7 @@ class Mamba3Block(nn.Module):
         self.ffn_down = nn.Linear(ffn_dim, self.d_model, bias=False)
 
     def _ffn(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the SwiGLU feed-forward path after the second RMSNorm."""
         gate, up = self.ffn_gate_up(x).chunk(2, dim=-1)
         return self.ffn_down(F.silu(gate) * up)
 
@@ -54,6 +63,9 @@ class Mamba3Block(nn.Module):
     def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
         B, T, _ = x.shape
         H, D, N = self.n_heads, self.head_dim, self.state_dim
+
+        # Keep the complex state in complex64 even when projections run under
+        # BF16 autocast; this avoids losing phase information in the recurrence.
 
         residual = x
         h = self.norm1(x)
@@ -86,7 +98,7 @@ class Mamba3Block(nn.Module):
         return x
 
     def _ssd_with_dispatch(self, x_ssm, B_t, C_t, dt):
-        """ssd_complex_chunkwise with optional triton dispatch and fallback."""
+        """Run SSD through the configured backend, warning once on Triton failure."""
         if self.ssd_dispatch != "triton":
             return ssd_complex_chunkwise(
                 x_ssm, self.A, B_t, C_t, dt, chunk_size=self.chunk_size,

@@ -11,6 +11,7 @@ from .mamba_block import Mamba3Block
 
 @dataclass
 class ModelConfig:
+    """Hyperparameters for the pure-SSM Mamba-3 language model."""
     vocab_size: int = 50257
     d_model: int = 1024
     n_layers: int = 28
@@ -28,7 +29,11 @@ class ModelConfig:
 
 
 class Mamba3Transformer(nn.Module):
-    """Mamba-3 Lite Architecture."""
+    """Stack Mamba-3 blocks and project their final representations to logits.
+
+    Passing a dictionary is supported for YAML-driven training configuration;
+    it is normalized to `ModelConfig` before modules are constructed.
+    """
 
     def __init__(self, cfg: ModelConfig | dict):
         super().__init__()
@@ -52,6 +57,7 @@ class Mamba3Transformer(nn.Module):
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
+        """Initialize learnable matrix weights while preserving identity MIMO layers."""
         if getattr(module, "_identity_init", False):
             return
         if isinstance(module, nn.Linear):
@@ -60,7 +66,7 @@ class Mamba3Transformer(nn.Module):
             nn.init.normal_(module.weight, mean=0.0, std=self.cfg.init_std)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """(B, T) -> (B, T, vocab_size)."""
+        """Return next-token logits for integer token IDs shaped `(batch, time)`."""
         x = self.embed(x)
 
         for layer in self.layers:

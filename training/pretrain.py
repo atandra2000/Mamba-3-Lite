@@ -1,3 +1,9 @@
+"""Single-GPU pre-training loop for the Mamba-3-Lite language model.
+
+The trainer keeps data access, optimization, checkpointing, and NaN recovery
+explicit so a smoke run and a long A100 run use the same execution path.
+"""
+
 import argparse, bisect, os, sys
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -19,6 +25,7 @@ _DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def count_parameters(model: nn.Module) -> Tuple[int, int]:
+    """Return total and trainable parameter counts for logging."""
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return total, trainable
@@ -26,6 +33,8 @@ def count_parameters(model: nn.Module) -> Tuple[int, int]:
 
 @dataclass
 class TrainingConfig:
+    """Runtime settings shared by the CLI and programmatic training entry points."""
+
     model_config: dict = field(default_factory=dict)
     data_path: str = "data/pretrain_data.bin"
     checkpoint_dir: str = "checkpoints/pretrain"
@@ -51,7 +60,11 @@ class TrainingConfig:
 
 
 class PretrainDataset(Dataset):
-    """Packed pre-training dataset backed by flat token tensors (single-file or sharded)."""
+    """Read contiguous next-token windows from one tensor file or mmap shards.
+
+    A missing path selects deterministic-shape dummy samples for wiring checks;
+    real training requires a packed token file or a directory of `shard_*.bin`.
+    """
 
     def __init__(self, data_path: str, max_seq_len: int, vocab_size: int):
         self.max_seq_len = max_seq_len
@@ -64,16 +77,19 @@ class PretrainDataset(Dataset):
         self._init_sharded(data_path) if os.path.isdir(data_path) else self._init_single(data_path)
 
     def _init_single(self, data_path: str) -> None:
+        """Load one flat token tensor and reserve one token per window as target."""
         self.layout = "single"
         self.data = torch.load(data_path, weights_only=True)
         self._n_samples = (len(self.data) - 1) // self.max_seq_len
 
     def _get_window_single(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Return adjacent input/target slices without crossing a window boundary."""
         start = idx * self.max_seq_len
         chunk = self.data[start: start + self.max_seq_len + 1]
         return chunk[:-1], chunk[1:]
 
     def _init_sharded(self, data_dir: str) -> None:
+        """Open token shards and build offsets for global-index lookup."""
         shard_paths = sorted(Path(data_dir).glob("shard_*.bin"))
         if not shard_paths:
             raise FileNotFoundError(f"No `shard_*.bin` files in {data_dir}")
@@ -85,6 +101,7 @@ class PretrainDataset(Dataset):
         self._n_samples = (self._total_tokens - 1) // self.max_seq_len
 
     def _get_window_sharded(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Assemble a next-token window, spanning shards only when necessary."""
         start = idx * self.max_seq_len
         shard_idx, offset_in_shard = self._locate(start)
         if offset_in_shard + (self.max_seq_len + 1) <= self.shard_sizes[shard_idx]:
@@ -102,6 +119,7 @@ class PretrainDataset(Dataset):
         return chunk[:-1], chunk[1:]
 
     def _locate(self, global_idx: int) -> Tuple[int, int]:
+        """Map a global token index to its shard index and local offset."""
         lo = bisect.bisect_right(self.shard_offsets, global_idx) - 1
         return lo, global_idx - self.shard_offsets[lo]
 
@@ -109,6 +127,7 @@ class PretrainDataset(Dataset):
         return self._n_samples
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Return model inputs and one-token-shifted language-model targets."""
         if self.layout == "dummy":
             return torch.randint(0, self.vocab_size, (self.max_seq_len,)), torch.randint(0, self.vocab_size, (self.max_seq_len,))
         return self._get_window_single(idx) if self.layout == "single" else self._get_window_sharded(idx)
@@ -126,7 +145,7 @@ def train_step(
     targets: torch.Tensor,
     micro_step: int,
 ) -> Tuple[Optional[Dict[str, float]], int]:
-    """One forward+backward+optional-step. Module-level so tests can call it directly."""
+    """Run one micro-step and update optimizer state at accumulation boundaries."""
     is_opt_step = (micro_step + 1) % config.gradient_accumulation_steps == 0
     with amp_context:
         logits = model(tokens)
@@ -166,7 +185,7 @@ def _enforce_triton_env_var(model_config: dict, log) -> None:
 
 
 class Pretrainer:
-    """BF16 pre-training loop for single GPU."""
+    """Coordinate model setup, mixed precision, optimization, and recovery."""
 
     def __init__(self, config: TrainingConfig):
         self.config = config
@@ -240,6 +259,7 @@ class Pretrainer:
         return result
 
     def save_checkpoint(self, step: int, tag: str = "") -> None:
+        """Persist model, optimizer, scheduler, and configuration at a step."""
         state = self.raw_model.state_dict()
         extra_meta = {"scheduler": self.scheduler.state_dict(), "opt_steps": self._opt_steps,
                       "tag": tag or f"step_{step}", "config": asdict(self.config)}
@@ -247,6 +267,7 @@ class Pretrainer:
         self._log(f"Checkpoint saved at step {step}")
 
     def load_checkpoint(self, step: int) -> int:
+        """Restore a checkpoint and return its recorded training step."""
         meta = self.ckpt_manager.load(self.raw_model, step, device=str(self.device), optimizer=self.optimizer, strict=False)
         if "scheduler" in meta:
             self.scheduler.load_state_dict(meta["scheduler"])
@@ -260,6 +281,7 @@ class Pretrainer:
         return self.ckpt_manager.latest_step()
 
     def train(self) -> None:
+        """Run batches until the configured step limit, restoring after NaNs."""
         dataset = PretrainDataset(self.config.data_path, self.config.max_seq_len, self.config.vocab_size)
         loader = DataLoader(dataset, batch_size=self.config.batch_size, num_workers=0, drop_last=True)
 

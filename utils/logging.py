@@ -1,11 +1,15 @@
-"""Single-GPU training logger with optional WandB integration (enable with WANDB_PROJECT env var)."""
+"""Human-readable training metrics with optional WandB forwarding.
+
+Set `WANDB_PROJECT` to enable the optional integration; local logging remains
+available when WandB is absent or intentionally disabled.
+"""
 import os, time
 from typing import Dict, Optional
 import torch
 
 
 class TrainingLogger:
-    """Step-driven logger: prints a rolling-window summary every log_every steps; optionally forwards to WandB."""
+    """Aggregate loss over logging intervals and report throughput and perplexity."""
 
     def __init__(self, log_every: int = 10, seq_len: int = 1024, batch_size: int = 1):
         self.log_every = log_every
@@ -24,6 +28,7 @@ class TrainingLogger:
                 print("[logging] wandb not installed -- skipping WandB integration")
 
     def log(self, step: int, loss: float, metrics: Optional[Dict[str, float]] = None, lr: float = 0.0) -> None:
+        """Record one loss and emit/reset the interval summary when due."""
         self._loss_window.append(loss)
         if step % self.log_every != 0 or not self._loss_window:
             return

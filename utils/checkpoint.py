@@ -14,7 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 class CheckpointManager:
-    """Save/load model checkpoints. Files: model_step_N.safetensors, optim_step_N.pt, meta_step_N.json."""
+    """Manage the three-file checkpoint format used by the pre-training loop.
+
+    A step is resumable only when weights, optimizer state, and metadata all
+    exist; this prevents selecting a partially written checkpoint.
+    """
 
     def __init__(self, save_dir: str):
         self.save_dir = Path(save_dir)
@@ -22,9 +26,10 @@ class CheckpointManager:
 
     def save(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer, step: int,
              extra_meta: Optional[dict] = None, state_dict: Optional[dict] = None) -> None:
+        """Write model weights, optimizer state, and JSON metadata for one step."""
         state = state_dict if state_dict is not None else model.state_dict()
-        # safetensors rejects aliased (shared-storage) tensors; copy the
-        # second alias so every entry has independent storage.
+        # safetensors rejects aliased tensors, as produced by tied embeddings;
+        # clone only repeated storage so ordinary checkpoints stay zero-copy.
         independent: dict = {}
         seen_ptrs: set = set()
         for k, v in state.items():
@@ -41,6 +46,7 @@ class CheckpointManager:
 
     def load(self, model: torch.nn.Module, step: int, device: str = "cuda",
              optimizer: Optional[torch.optim.Optimizer] = None, strict: bool = True) -> dict:
+        """Restore weights and optional optimizer state, returning saved metadata."""
         weight_path = self.save_dir / f"model_step_{step}.safetensors"
         if not weight_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {weight_path}\nAvailable steps: {self._list_steps()}")
@@ -68,18 +74,22 @@ class CheckpointManager:
         return meta
 
     def latest_step(self) -> Optional[int]:
+        """Return the newest step whose three checkpoint files are complete."""
         steps = self._list_steps()
         return next((s for s in sorted(steps, reverse=True) if self._checkpoint_complete(s)), None)
 
     @staticmethod
     def _write_json(path: str, obj: dict) -> None:
+        """Serialize metadata with stable indentation for inspectable checkpoints."""
         with open(path, "w") as f:
             json.dump(obj, f, indent=2, default=str)
 
     def _list_steps(self) -> list:
+        """List step numbers represented by model weight files."""
         return [int(p.stem.removeprefix("model_step_"))
                 for p in self.save_dir.glob("model_step_[0-9]*.safetensors")]
 
     def _checkpoint_complete(self, step: int) -> bool:
+        """Check that all files required for a resumable step are present."""
         return all((self.save_dir / n).exists() for n in [
             f"model_step_{step}.safetensors", f"optim_step_{step}.pt", f"meta_step_{step}.json"])

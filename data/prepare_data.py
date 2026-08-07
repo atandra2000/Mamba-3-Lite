@@ -1,14 +1,9 @@
-"""Mamba-3-Lite data prep: thin shim over the universal pipeline (GPT-2 BPE, vocab 50,257).
+"""Project-specific wrapper around the workspace-wide tokenization pipeline.
 
-Requires the `shared_data` package. The repo's `data/DATA_PIPELINE.md` says it
-is vendored at `data/shared_data/` or lives in the workspace at `LLM/shared_data/`
-— this clone ships no vendored copy, but the workspace `LLM/shared_data/` is
-present, so the guard resolves the workspace fallback and the CLI proceeds.
-The E2E test bypasses the shim entirely and writes a synthetic uint32 token
-shard via `torch.save`; see `tests/e2e_gpu_smoke.py`.
-
-To re-enable the full 8.0B-token pipeline, vendor `shared_data` from a sibling
-project or install it from the workspace.
+It supplies the GPT-2 tokenizer contract required by Mamba-3-Lite, writes a
+local configuration override, and forwards download, tokenize, and packing
+options to the shared pipeline. The `shared_data` package must be vendored or
+available from the parent workspace.
 """
 import argparse
 import sys
@@ -69,6 +64,7 @@ def _ensure_mamba_data_config(project_root: Path) -> Path:
 
 
 def _apply_mamba_defaults() -> Path:
+    """Create the local pipeline config with the model's tokenizer settings."""
     from shared_data.config import UNIVERSAL_TOTAL_TOKENS
     print(f"[data/mamba3] universal corpus: {UNIVERSAL_TOTAL_TOKENS:,} tokens")
     print(f"[data/mamba3] tokenizer: {MAMBA_TOKENIZER_NAME} "
@@ -78,6 +74,7 @@ def _apply_mamba_defaults() -> Path:
 
 
 def main() -> int:
+    """Parse CLI overrides and run the shared data preparation pipeline."""
     _require_shared_data()
 
     parser = argparse.ArgumentParser(
