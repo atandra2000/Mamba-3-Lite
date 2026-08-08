@@ -33,6 +33,28 @@ def ssd_naive_complex(
     return torch.stack(ys, dim=1)
 
 
+def per_chunk_ssd_pytorch(
+    Bc: torch.Tensor, Cc: torch.Tensor, Xc: torch.Tensor,
+    A_log: torch.Tensor, decay_states: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute per-chunk outputs and chunk-end states with ordinary tensor ops.
+
+    `A_log` is `(B, chunks, C, H)`; the causal matrix `L` contains the decay
+    from source position `s` to destination `l` within one chunk. This is the
+    single implementation shared by the PyTorch dispatch and the Triton
+    kernel's recompute backward.
+    """
+    C = Bc.shape[2]
+    causal = torch.tril(torch.ones(C, C, device=Bc.device, dtype=torch.bool))
+    A_log_h = A_log.permute(0, 1, 3, 2)
+    A_cs = A_log_h.cumsum(dim=-1)
+    seg = A_cs.unsqueeze(-1) - A_cs.unsqueeze(-2)
+    L = torch.exp(seg) * causal
+    Y_diag = torch.einsum("bclhn,bcshn,bchls,bcshp->bclhp", Cc, Bc, L, Xc)
+    state = torch.einsum("bclhn,bclh,bclhp->bchpn", Bc, decay_states, Xc)
+    return Y_diag, state
+
+
 def ssd_complex_chunkwise(
     x: torch.Tensor, A: torch.Tensor, B_t: torch.Tensor, C_t: torch.Tensor, dt: torch.Tensor,
     chunk_size: int = 64,
@@ -71,15 +93,7 @@ def ssd_complex_chunkwise(
         from .ssd_triton import per_chunk_ssd_triton
         Y_diag, states = per_chunk_ssd_triton(Bc, Cc, Xc, Ac, decay_states)
     else:
-        Ac_perm = Ac.permute(0, 1, 3, 2).contiguous()
-        T_c = Ac_perm.size(-1)
-        Ac_cumsum = torch.cumsum(Ac_perm, dim=-1)
-        Ac_seg = Ac_cumsum.unsqueeze(-1) - Ac_cumsum.unsqueeze(-2)
-        mask = torch.tril(torch.ones(T_c, T_c, device=x.device, dtype=torch.bool))
-        L = torch.exp(Ac_seg) * mask
-
-        Y_diag = torch.einsum("bclhn,bcshn,bchls,bcshp->bclhp", Cc, Bc, L, Xc)
-        states = torch.einsum("bclhn,bclh,bclhp->bchpn", Bc, decay_states, Xc)
+        Y_diag, states = per_chunk_ssd_pytorch(Bc, Cc, Xc, Ac, decay_states)
 
     chunk_decay = A_cumsum[:, :, -1, :]
     cd_perm = chunk_decay.permute(0, 2, 1).contiguous()

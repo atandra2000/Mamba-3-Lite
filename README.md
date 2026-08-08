@@ -242,8 +242,7 @@ Mamba-3-Lite/
 │   ├── prepare_data.py                 # shim over the shared 8.0B-token pipeline
 │   └── data_config.yaml                # materialised by the shim (GPT-2 vocab)
 ├── scripts/
-│   ├── launch_a100.sh
-│   └── generate_code_map.py           # code map from doc citations
+│   └── launch_a100.sh
 ├── tests/
 │   ├── test_ssd.py                     # ★ chunk vs naive equivalence
 │   ├── test_ssd_triton.py              # kernel reference, dispatch guards, GPU parity

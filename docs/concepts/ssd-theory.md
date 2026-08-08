@@ -491,7 +491,7 @@ pair = torch.view_as_real(z.contiguous())
 return pair[..., 0].contiguous(), pair[..., 1].contiguous()
 ```
 
-The `z.contiguous()` first guarantees the interleaved layout is materialized (a permuted complex tensor would have non-trivial strides), and the final `.contiguous()` on `pair[..., 0]`/`pair[..., 1]` copies the stride-2 slices into stride-1 buffers the kernel indexes linearly (the kernel's grid is one program per `(B, c, H)`, reading `Bc`/`Cc`/`Xc`/`A_log`/`decay_states` as flat pointers). The same split feeds the dtype guard (`complex64` required, else `TypeError`). The backward of `models/ssd_triton.py:_PerChunkSSDTriton` recomputes the per-chunk math with `models/ssd_triton.py:per_chunk_ssd_pytorch` seeded with the true `grad_outputs` — so the complex gradients described above are reproduced on the PyTorch path even when the forward ran on GPU. Full kernel mechanics: `../references/ssd-reference.md`.
+The `z.contiguous()` first guarantees the interleaved layout is materialized (a permuted complex tensor would have non-trivial strides), and the final `.contiguous()` on `pair[..., 0]`/`pair[..., 1]` copies the stride-2 slices into stride-1 buffers the kernel indexes linearly (the kernel's grid is one program per `(B, c, H)`, reading `Bc`/`Cc`/`Xc`/`A_log`/`decay_states` as flat pointers). The same split feeds the dtype guard (`complex64` required, else `TypeError`). The backward of `models/ssd_triton.py:_PerChunkSSDTriton` recomputes the per-chunk math with `models/ssd_complex.py:per_chunk_ssd_pytorch` seeded with the true `grad_outputs` — so the complex gradients described above are reproduced on the PyTorch path even when the forward ran on GPU. Full kernel mechanics: `../references/ssd-reference.md`.
 
 ## Pitfalls
 

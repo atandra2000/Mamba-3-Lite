@@ -318,7 +318,7 @@ class Pretrainer:
                 nan_guard_streak = 0
                 if global_step % self.config.log_every == 0:
                     lr = self.scheduler.get_last_lr()[0]
-                    self.logger.log(global_step, metrics["loss"], lr=lr, metrics={})
+                    self.logger.log(global_step, metrics["loss"], lr=lr)
                 if global_step % self.config.save_every == 0 and global_step > 0:
                     self.save_checkpoint(global_step)
                 global_step += 1
@@ -341,13 +341,14 @@ def main() -> None:
         yaml_cfg = yaml.safe_load(f)
     t = yaml_cfg.get("training", {})
     d = yaml_cfg.get("data", {})
+    m = yaml_cfg.get("model", yaml_cfg)
 
     config = TrainingConfig(
-        model_config=yaml_cfg.get("model", yaml_cfg),
+        model_config=m,
         data_path=args.data_path or d.get("train_data_path", "data/pretrain_data.bin"),
         checkpoint_dir=args.checkpoint_dir or t.get("save_dir", "checkpoints/pretrain_a100"),
-        max_seq_len=yaml_cfg.get("model", yaml_cfg).get("max_seq_len", 2048),
-        vocab_size=yaml_cfg.get("model", yaml_cfg).get("vocab_size", 50257),
+        max_seq_len=m.get("max_seq_len", 2048),
+        vocab_size=m.get("vocab_size", 50257),
         batch_size=t.get("micro_batch_size", 16),
         gradient_accumulation_steps=t.get("gradient_accumulation_steps", 2),
         max_steps=2 if args.dry_run else t.get("total_steps", 256000),

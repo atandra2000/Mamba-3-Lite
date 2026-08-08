@@ -458,7 +458,7 @@ so the logged ppl is **not** the mean of the per-step perplexities — it is at 
 `utils/logging.py:TrainingLogger` has two public methods.
 
 - `TrainingLogger.__init__(self, log_every: int = 10, seq_len: int = 1024, batch_size: int = 1)` — records the three scalars, starts two clocks (`_start`, `_step_start`), initializes an empty `_loss_window: list[float]`, and conditionally initializes WandB.
-- `TrainingLogger.log(self, step: int, loss: float, metrics: Optional[Dict[str, float]] = None, lr: float = 0.0) -> None` — appends `loss` to the window and flushes when `step` is a multiple of `log_every`.
+- `TrainingLogger.log(self, step: int, loss: float, lr: float = 0.0) -> None` — appends `loss` to the window and flushes when `step` is a multiple of `log_every`.
 
 ### Construction and the WandB gate
 
@@ -491,7 +491,7 @@ Semantics worth stating precisely:
 ### `log`: append, gate, flush
 
 ```python
-def log(self, step: int, loss: float, metrics: Optional[Dict[str, float]] = None, lr: float = 0.0) -> None:
+def log(self, step: int, loss: float, lr: float = 0.0) -> None:
     self._loss_window.append(loss)
     if step % self.log_every != 0 or not self._loss_window:
         return
@@ -500,14 +500,9 @@ def log(self, step: int, loss: float, metrics: Optional[Dict[str, float]] = None
     tokens_per_sec = (self.log_every * self.seq_len * self.batch_size) / elapsed
     ppl = torch.tensor(avg_loss).exp().item()
     parts = [f"step={step:>7}", f"loss={avg_loss:.4f}", f"ppl={ppl:.2f}", f"lr={lr:.2e}", f"tps={tokens_per_sec:,.0f}"]
-    if metrics:
-        for k, v in metrics.items():
-            parts.append(f"{k}={v:.4f}")
     print(" | ".join(parts))
     if self._wandb is not None:
         log_dict = {"train/loss": avg_loss, "train/ppl": ppl, "train/lr": lr, "train/tokens_per_sec": tokens_per_sec}
-        if metrics:
-            log_dict.update({f"train/{k}": v for k, v in metrics.items()})
         self._wandb.log(log_dict, step=step)
     self._loss_window = []
     self._step_start = time.time()
@@ -518,8 +513,8 @@ Step by step:
 1. **Append unconditionally**, then gate: `step % log_every != 0` or an empty window → early return. The window can only be empty if `loss` was never appended, which cannot happen — the guard is defensive.
 2. **`avg_loss`** is a plain Python mean over `_loss_window`; `loss` arrives as a Python `float`, so no tensor arithmetic happens until ppl.
 3. **`tokens_per_sec`** implements the formula above; `lr` is whatever the caller passed (default `0.0`).
-4. **Print format**: fields joined by `" | "` — `step` right-aligned 7 wide, `loss` 4 decimals, `ppl` 2 decimals, `lr` scientific 2 decimals, `tps` thousands-separated with no decimals. Extra `metrics` entries append as `{k}={v:.4f}`.
-5. **WandB**: exactly one `log_dict` per flush with the four `train/` keys (plus `train/{k}` per extra metric), recorded at `step=step` — the global training step, so WandB's x-axis is training progress even across resume runs.
+4. **Print format**: fields joined by `" | "` — `step` right-aligned 7 wide, `loss` 4 decimals, `ppl` 2 decimals, `lr` scientific 2 decimals, `tps` thousands-separated with no decimals.
+5. **WandB**: exactly one `log_dict` per flush with the four `train/` keys, recorded at `step=step` — the global training step, so WandB's x-axis is training progress even across resume runs.
 6. **Reset**: window emptied and `_step_start` restarted, so the next `elapsed` measures the next window only.
 
 ### Integration in the training loop
@@ -551,21 +546,21 @@ if metrics is None:
 nan_guard_streak = 0
 if global_step % self.config.log_every == 0:
     lr = self.scheduler.get_last_lr()[0]
-    self.logger.log(global_step, metrics["loss"], lr=lr, metrics={})
+    self.logger.log(global_step, metrics["loss"], lr=lr)
 ```
 
 Precise facts about this call pattern:
 
 - **The guard is only `global_step % self.config.log_every == 0`.** The "metrics non-None" condition is enforced *upstream*, not at the call site: `training/pretrain.py:train_step` returns `None` when `nan_guard` detects NaN/Inf (after zeroing grads and skipping backward), the loop `continue`s before reaching the logger, and a NaN step does not advance `global_step`. So `log` is never invoked with a NaN loss — but nothing in `TrainingLogger.log` itself would reject one.
 - **`metrics["loss"]`** is the cross-entropy value from `train_step` (computed with `ignore_index=-100`), passed positionally as `loss`; **`lr`** is `scheduler.get_last_lr()[0]`, the current effective LR of the `SequentialLR` (linear warmup → cosine).
-- **`metrics={}`** — an empty dict, so the extra-metrics branches in `log` (both the console `{k}={v:.4f}` and `train/{k}` WandB keys) are inert in this integration. `train_step` returns only `{"loss": …}` anyway; its dict is consumed via the `["loss"]` lookup, never passed whole.
+- **`metrics` is not passed.** The former `metrics` parameter was dropped because `train_step` returns only `{"loss": …}`; its dict is consumed via the `["loss"]` lookup, never passed whole.
 - **Step 0 is logged**: `global_step` starts at 0 and `0 % log_every == 0`, so the first line appears immediately. Its `elapsed` covers logger construction through the first step, including dataset build, checkpoint scan, and any `load_checkpoint` ([Mamba-3-Lite — Training Reference](../references/training-reference.md)) — discard this line for steady-state tps.
 - **After resume**, `global_step` is the restored step (`Pretrainer.load_checkpoint`), so the first flush occurs at the next multiple of `log_every`, with a one-loss window.
 
 ## Invariants
 
 - A flush occurs **iff** the caller passes `step % log_every == 0` and the window is non-empty; every flush empties `_loss_window` and restarts `_step_start`.
-- Exactly one console line and at most one WandB record per flush, keyed by the global `step`; WandB keys are `train/loss`, `train/ppl`, `train/lr`, `train/tokens_per_sec`, plus `train/{k}` for non-empty `metrics`.
+- Exactly one console line and at most one WandB record per flush, keyed by the global `step`; WandB keys are `train/loss`, `train/ppl`, `train/lr`, `train/tokens_per_sec`.
 - `tps` is only as accurate as its numerator assumption: `log_every × seq_len × batch_size` tokens must actually have been processed between flushes.
 
 ## Pitfalls

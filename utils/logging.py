@@ -4,7 +4,6 @@ Set `WANDB_PROJECT` to enable the optional integration; local logging remains
 available when WandB is absent or intentionally disabled.
 """
 import os, time
-from typing import Dict, Optional
 import torch
 
 
@@ -27,7 +26,7 @@ class TrainingLogger:
             except ImportError:
                 print("[logging] wandb not installed -- skipping WandB integration")
 
-    def log(self, step: int, loss: float, metrics: Optional[Dict[str, float]] = None, lr: float = 0.0) -> None:
+    def log(self, step: int, loss: float, lr: float = 0.0) -> None:
         """Record one loss and emit/reset the interval summary when due."""
         self._loss_window.append(loss)
         if step % self.log_every != 0 or not self._loss_window:
@@ -37,14 +36,9 @@ class TrainingLogger:
         tokens_per_sec = (self.log_every * self.seq_len * self.batch_size) / elapsed
         ppl = torch.tensor(avg_loss).exp().item()
         parts = [f"step={step:>7}", f"loss={avg_loss:.4f}", f"ppl={ppl:.2f}", f"lr={lr:.2e}", f"tps={tokens_per_sec:,.0f}"]
-        if metrics:
-            for k, v in metrics.items():
-                parts.append(f"{k}={v:.4f}")
         print(" | ".join(parts))
         if self._wandb is not None:
             log_dict = {"train/loss": avg_loss, "train/ppl": ppl, "train/lr": lr, "train/tokens_per_sec": tokens_per_sec}
-            if metrics:
-                log_dict.update({f"train/{k}": v for k, v in metrics.items()})
             self._wandb.log(log_dict, step=step)
         self._loss_window = []
         self._step_start = time.time()

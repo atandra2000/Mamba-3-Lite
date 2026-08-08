@@ -142,7 +142,7 @@ Outside the harness (notebooks, tests), a triton-less box prints one warning per
 
 **Env knobs:** `TRITON_PER_CHUNK_NUM_STAGES` (default 1) and `TRITON_PER_CHUNK_NUM_WARPS` (default 4), read in `_per_chunk_ssd_triton_forward`; both are per-launch tuning, `[INFERENCE]` without a benchmark.
 
-**When to prefer `pytorch`:** small models (per-(B, c, H) launch overhead dominates), debugging (the backward of `_PerChunkSSDTriton` recomputes `models/ssd_triton.py:per_chunk_ssd_pytorch`, so gradients are easier to follow on the eager path), dims above the 256-cap or non-power-of-two, and any box without Triton. The kernel's backward is exact but reference-speed — measure end-to-end before assuming the step is faster.
+**When to prefer `pytorch`:** small models (per-(B, c, H) launch overhead dominates), debugging (the backward of `_PerChunkSSDTriton` recomputes `models/ssd_complex.py:per_chunk_ssd_pytorch`, so gradients are easier to follow on the eager path), dims above the 256-cap or non-power-of-two, and any box without Triton. The kernel's backward is exact but reference-speed — measure end-to-end before assuming the step is faster.
 
 ## 9. Data side
 
@@ -203,7 +203,7 @@ Related: [Mamba-3-Lite — Config Reference](../references/config-reference.md),
 - `models/mamba_block.py:Mamba3Block.chunk_size`
 - `models/ssd_complex.py:ssd_complex_chunkwise`
 - `models/ssd_triton.py:_check_block_dims`
-- `models/ssd_triton.py:per_chunk_ssd_pytorch`
+- `models/ssd_complex.py:per_chunk_ssd_pytorch`
 - `training/pretrain.py:TrainingConfig`
 - `training/pretrain.py:Pretrainer.__init__`
 - `training/pretrain.py:Pretrainer.train`

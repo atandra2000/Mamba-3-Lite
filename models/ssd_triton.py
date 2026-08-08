@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from .ssd_complex import per_chunk_ssd_pytorch
+
 if TYPE_CHECKING:
     import triton
     import triton.language as tl
@@ -24,26 +26,6 @@ except ImportError:
 
 # 256-cap on constexpr block sizes; larger dims surface a clean ValueError.
 _MAX_BLOCK = 256
-
-
-def per_chunk_ssd_pytorch(
-    Bc: torch.Tensor, Cc: torch.Tensor, Xc: torch.Tensor,
-    A_log: torch.Tensor, decay_states: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Mirror the Triton per-chunk pass using ordinary tensor operations.
-
-    `A_log` is `(B, chunks, C, H)`; the causal matrix `L` contains the decay
-    from source position `s` to destination `l` within one chunk.
-    """
-    C = Bc.shape[2]
-    causal = torch.tril(torch.ones(C, C, device=Bc.device, dtype=torch.bool))
-    A_log_h = A_log.permute(0, 1, 3, 2)
-    A_cs = A_log_h.cumsum(dim=-1)
-    seg = A_cs.unsqueeze(-1) - A_cs.unsqueeze(-2)
-    L = torch.exp(seg) * causal
-    Y_diag = torch.einsum("bclhn,bcshn,bchls,bcshp->bclhp", Cc, Bc, L, Xc)
-    state = torch.einsum("bclhn,bclh,bclhp->bchpn", Bc, decay_states, Xc)
-    return Y_diag, state
 
 
 if HAS_TRITON:

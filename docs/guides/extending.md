@@ -91,7 +91,7 @@ Everything the kernel needs is defined under `if HAS_TRITON:`; the always-define
 
 ### Step 2: write the pure-PyTorch reference
 
-Define `per_<name>_pytorch(...)` at top level — no triton required. This is both the CPU test oracle and the backward's recompute engine. The existing one is `models/ssd_triton.py:per_chunk_ssd_pytorch`, which materialises `L = exp(cumsum(A_log)[l] − cumsum(A_log)[s]) · tril` and computes `Y_diag` and per-chunk `state` with einsums.
+Define `per_<name>_pytorch(...)` at top level — no triton required. This is both the CPU test oracle and the backward's recompute engine. The existing one is `models/ssd_complex.py:per_chunk_ssd_pytorch`, which materialises `L = exp(cumsum(A_log)[l] − cumsum(A_log)[s]) · tril` and computes `Y_diag` and per-chunk `state` with einsums.
 
 ### Step 3: the kernel and the autograd Function — correct backward, always
 

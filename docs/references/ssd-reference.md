@@ -264,7 +264,7 @@ This reference doc is the migration and expansion of the retired `documentation/
 
 ## 1. 60-second summary
 
-After reading this doc you will understand: why Mamba-3-Lite ships one fused Triton kernel (the per-chunk `Y_diag` + `state` pass is the HBM-bandwidth hotspot of the chunkwise SSD), the exact host API — `models/ssd_triton.py:per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states) -> (Y_diag, state)` — plus its pure-PyTorch reference `models/ssd_triton.py:per_chunk_ssd_pytorch`, the tensor-shape and block-dim contracts (one program per `(B, n_chunks, H)`, `BLOCK_C/P/N = C/D/N`), the 256-cap hard-fail `models/ssd_triton.py:_check_block_dims`, the complex64→real/imag split `models/ssd_triton.py:_view_real_imag`, the recompute-based autograd backward of `models/ssd_triton.py:_PerChunkSSDTriton` (all five inputs get correct gradients, seeded with the true downstream `grad_outputs`), the env knobs (`TRITON_PER_CHUNK_NUM_STAGES=1`, `TRITON_PER_CHUNK_NUM_WARPS=4`), the numerical contract (fp32 accumulators, `atol=1e-3` fp32 / `1e-2` bf16 vs the reference), and the `tests/test_ssd_triton.py` verification surface.
+After reading this doc you will understand: why Mamba-3-Lite ships one fused Triton kernel (the per-chunk `Y_diag` + `state` pass is the HBM-bandwidth hotspot of the chunkwise SSD), the exact host API — `models/ssd_triton.py:per_chunk_ssd_triton(Bc, Cc, Xc, A_log, decay_states) -> (Y_diag, state)` — plus its pure-PyTorch reference `models/ssd_complex.py:per_chunk_ssd_pytorch`, the tensor-shape and block-dim contracts (one program per `(B, n_chunks, H)`, `BLOCK_C/P/N = C/D/N`), the 256-cap hard-fail `models/ssd_triton.py:_check_block_dims`, the complex64→real/imag split `models/ssd_triton.py:_view_real_imag`, the recompute-based autograd backward of `models/ssd_triton.py:_PerChunkSSDTriton` (all five inputs get correct gradients, seeded with the true downstream `grad_outputs`), the env knobs (`TRITON_PER_CHUNK_NUM_STAGES=1`, `TRITON_PER_CHUNK_NUM_WARPS=4`), the numerical contract (fp32 accumulators, `atol=1e-3` fp32 / `1e-2` bf16 vs the reference), and the `tests/test_ssd_triton.py` verification surface.
 
 ## 2. Why this kernel exists
 
@@ -327,7 +327,7 @@ Outputs: `Y_diag` is `(B, n_chunks, C, H, P)`, `state` is `(B, n_chunks, H, P, N
 
 **Failure modes.** Without `triton` installed, raises `ImportError` with an install hint; if any block dim exceeds 256, `_check_block_dims` raises `ValueError`. The parent dispatcher converts both into a per-instance one-shot fallback to the PyTorch path (§8).
 
-### 3.2 `per_chunk_ssd_pytorch(...)` — the pure-PyTorch reference
+### 3.2 `models/ssd_complex.py:per_chunk_ssd_pytorch` — the pure-PyTorch reference
 
 ```python
 def per_chunk_ssd_pytorch(
@@ -350,7 +350,7 @@ def per_chunk_ssd_pytorch(
     return Y_diag, state
 ```
 
-**Roles.** (1) Correctness oracle: the GPU parity tests compare `per_chunk_ssd_triton` against it at `atol=1e-3` (fp32) / `1e-2` (bf16). (2) Recompute body of the backward pass (§6). (3) The exact math `ssd_complex_chunkwise`'s non-triton branch computes inline (identical einsums modulo the `Ac.permute` layout), which is why the dispatcher can swap implementations without changing outer numerics. Its shapes mirror the kernel contract exactly — `Y_diag (B, n_chunks, C, H, P)`, `state (B, n_chunks, H, P, N)` — verified by `test_reference_shape_and_finite` and `test_reference_matches_ssd_complex_chunkwise`.
+**Roles.** (1) Correctness oracle: the GPU parity tests compare `per_chunk_ssd_triton` against it at `atol=1e-3` (fp32) / `1e-2` (bf16). (2) Recompute body of the backward pass (§6). (3) The single implementation of the per-chunk math: `ssd_complex_chunkwise`'s non-triton branch calls this function directly (a former inline copy of the same einsums lived there; consolidating removed the drift), which is why the dispatcher can swap implementations without changing outer numerics. Its shapes mirror the kernel contract exactly — `Y_diag (B, n_chunks, C, H, P)`, `state (B, n_chunks, H, P, N)` — verified by `test_reference_shape_and_finite` and `test_reference_matches_ssd_complex_chunkwise`.
 
 ### 3.3 `_check_block_dims(P, N, chunk_size)` — the 256-cap hard-fail
 
@@ -513,12 +513,10 @@ class _PerChunkSSDTriton(torch.autograd.Function):
         from .ssd_triton import per_chunk_ssd_triton
         Y_diag, states = per_chunk_ssd_triton(Bc, Cc, Xc, Ac, decay_states)
     else:
-        Ac_perm = Ac.permute(0, 1, 3, 2).contiguous()
-        ...
-        states = torch.einsum("bclhn,bclh,bclhp->bchpn", Bc, decay_states, Xc)
+        Y_diag, states = per_chunk_ssd_pytorch(Bc, Cc, Xc, Ac, decay_states)
 ```
 
-Note the input convention: the triton branch passes `Ac` (the *unpermuted* `(B, n_chunks, C, H)` log-decay) directly, because `per_chunk_ssd_pytorch` permutes internally; the pytorch branch permutes `Ac` to `(B, n_chunks, H, C)` first. Both produce the same `L`; the kernel's `tl.cumsum` runs over the `C` axis in the natural layout.
+Note the input convention: both dispatch branches pass `Ac` (the *unpermuted* `(B, n_chunks, C, H)` log-decay) directly to `per_chunk_ssd_pytorch`, which permutes internally; the kernel's `tl.cumsum` runs over the `C` axis in the natural layout.
 
 **What stays in PyTorch.** The kernel replaces only the two per-chunk einsums (`Y_diag` and `state`). Everything else in `ssd_complex_chunkwise` is untouched and runs on the same tensors regardless of dispatch:
 
@@ -591,7 +589,7 @@ GPU tests (`TestPerChunkSsdKernelGPU`, skipped unless `HAS_TRITON and torch.cuda
 
 ## 10. Pitfalls
 
-- **Do not cite the JIT kernel.** `_ssd_per_chunk_fwd_kernel` is defined under `if HAS_TRITON:` and does not exist on triton-less CI; docs and the link checker must cite only the always-defined host wrappers (`per_chunk_ssd_triton`, `per_chunk_ssd_pytorch`, `_check_block_dims`, `_view_real_imag`, `_per_chunk_ssd_triton_forward`, `_PerChunkSSDTriton`).
+- **Do not cite the JIT kernel.** `_ssd_per_chunk_fwd_kernel` is defined under `if HAS_TRITON:` and does not exist on triton-less CI; docs and the link checker must cite only the always-defined host wrappers (`per_chunk_ssd_triton`, `_check_block_dims`, `_view_real_imag`, `_per_chunk_ssd_triton_forward`, `_PerChunkSSDTriton`); the pure-PyTorch reference lives in `models/ssd_complex.py:per_chunk_ssd_pytorch` (§3.2).
 - **The 256-cap is a hard fail, not a clamp.** `_check_block_dims` raises `ValueError` naming the offending dim (`P`, `N`, or `chunk_size`). The kernel cannot be resized past 256; the correct response is the dispatcher's fallback to `ssd_dispatch='pytorch'` (one-shot warning per block instance), not a silent truncation. A config with `state_dim > 256` simply cannot use the triton path.
 - **Backward is exact but slow.** `_PerChunkSSDTriton.backward` re-runs the per-chunk einsums in PyTorch on every backward step. It is a correctness contract, not a performance feature; do not measure training throughput assuming a fused backward.
 - **complex64 or nothing.** `_view_real_imag` raises `TypeError` for non-complex64 input. The kernel is specialised for the Mamba-3 complex layout; do not feed it real tensors or complex128.
