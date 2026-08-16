@@ -1,7 +1,18 @@
 # AGENTS.md — Mamba-3-Lite
 
-> Read root `AGENTS.md` and `self.md` first. Workspace rules are
-> authoritative; this file adds project-specific rules only.
+> Read the workspace `LLM/AGENTS.md` and the parent `CoreProjects/AGENTS.md`
+> (+ `self.md`) first. Higher-level rules are authoritative; this file adds
+> project-specific rules only (and wins on Mamba-3-Lite-specific conflicts).
+
+## Quick checks (run before claiming work is done)
+
+```bash
+cd LLM/Mamba-3-Lite
+python3 -m pytest tests/ -v          # CPU-friendly; triton tests auto-skip
+python3 tests/test_doc_refs.py       # doc↔code symbol anchors
+# GPU E2E (CUDA + triton required):
+#   ENABLE_TRITON_KERNELS=1 python3 tests/e2e_gpu_smoke.py
+```
 
 > **Project:** `LLM/Mamba-3-Lite/` · **Type:** State-Space Model (Mamba-3)
 > **Scale:** ~434M params · 8.0B Chinchilla-optimal tokens · 12–15h on A100 80GB
