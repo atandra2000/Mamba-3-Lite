@@ -53,3 +53,9 @@ htmlcov/
 # Environment
 .env
 .env.local
+
+# HTML Documentation (Generated locally)
+docs_html/
+
+# Tooling artifacts
+.zero/

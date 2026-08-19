@@ -66,6 +66,16 @@ Runs 8 checks: environment, data pipeline, model forward (pytorch +
 triton dispatch), triton-vs-pytorch parity, training step, checkpoint
 round-trip, and a full `Pretrainer` dry-run. Requires CUDA + triton.
 
+## Skill 6: Mirror documentation to Obsidian vault
+
+```bash
+cd ~/Desktop/CoreProjects && bash scripts/sync_to_vault.sh
+```
+
+Mirrors curated `docs/**`, `README.md`, `AGENTS.md`, and `SKILLS.md` to
+`~/Documents/obsidian/LLM/Mamba-3-Lite/`. Automatically excludes generated HTML
+(`docs_html/`), tooling dumps, and non-doc artifacts under the strict whitelist rule.
+
 ## Pitfalls
 
 - **Triton is sanctioned for one hot path:** `per_chunk_ssd_triton` in

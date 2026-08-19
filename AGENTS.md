@@ -149,3 +149,12 @@ parses every `file.py:Symbol` anchor in `docs/` and fails on unknown files or
 symbols — run it (and `python3 -m pytest tests/`) before committing doc or
 code changes. New components (e.g. a sanctioned Triton kernel) must add a
 `docs/references/<name>.md` doc following the style in the existing docs.
+
+## 7. Obsidian Vault Rule
+
+**Strict Whitelist Mirroring.** All agents and skills must ensure the Obsidian
+vault (`~/Documents/obsidian/LLM/Mamba-3-Lite/`) mirrors ONLY `README.md`,
+`AGENTS.md`, `SKILLS.md`, and curated documentation under `docs/**`.
+Generated HTML (`docs_html/`), tooling dumps, and non-doc artifacts are
+strictly excluded and must never enter the vault. Always run `bash scripts/sync_to_vault.sh`
+from workspace root after modifying docs.
