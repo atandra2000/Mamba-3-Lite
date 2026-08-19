@@ -10,6 +10,7 @@ A from-scratch PyTorch reproduction of Mamba-3 with complex-valued SSD state spa
 [![GPU: A100 80GB](https://img.shields.io/badge/GPU-A100%2080GB-76B900?logo=nvidia&logoColor=white)](#-hardware)
 [![No custom CUDA](https://img.shields.io/badge/CUDA-None%20required-blueviolet)](#-purity)
 [![Code style: black](https://img.shields.io/badge/Code%20Style-black-000000?logo=python&logoColor=white)](https://github.com/psf/black)
+[![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-blue)](https://atandra2000.github.io/Mamba-3-Lite/)
 
 [**Architecture**](#-architecture) · [**Headline metric**](#-headline-metric) · [**Quick start**](#-quick-start) · [**Documentation**](#-documentation) · [**References**](#-references)
 
@@ -225,6 +226,11 @@ The single sanctioned exception: the opt-in `per_chunk_ssd_triton` kernel (`mode
 
 ```
 Mamba-3-Lite/
+├── assets/
+│   ├── style.css                       # doc portal design system
+│   └── portal.js                       # interactive hero + mechanism demos
+├── .github/workflows/
+│   └── deploy-docs.yml                 # auto-deploy docs to GitHub Pages
 ├── configs/
 │   └── pretrain_a100_400m.yaml
 ├── models/
@@ -242,6 +248,7 @@ Mamba-3-Lite/
 │   ├── prepare_data.py                 # shim over the shared 8.0B-token pipeline
 │   └── data_config.yaml                # materialised by the shim (GPT-2 vocab)
 ├── scripts/
+│   ├── build_docs_html.py              # HTML docs generator for GitHub Pages
 │   └── launch_a100.sh
 ├── tests/
 │   ├── test_ssd.py                     # ★ chunk vs naive equivalence
@@ -270,6 +277,8 @@ Mamba-3-Lite/
 ---
 
 ## 📖 Documentation
+
+**[Live docs on GitHub Pages](https://atandra2000.github.io/Mamba-3-Lite/)** — auto-deployed from `main` via GitHub Actions on every push.
 
 The full doc tree lives in [`docs/`](docs/README.md), machine-checked for doc↔code alignment by `tests/test_doc_refs.py` (`--coverage --links`):
 
