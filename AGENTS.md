@@ -22,7 +22,7 @@ python3 tests/test_doc_refs.py       # doc↔code symbol anchors
 > **Architecture detail:** see `README.md` in this folder, **`docs/concepts/ssd-theory.md`**
 > (authoritative chunkwise-complex-SSD derivation) and the full `docs/` tree
 > (concepts/ + references/ + guides/, see `docs/README.md`). Cross-project helper: root
-> `AGENTS.md §2.13` (`mamba2-ssd-engineer`).
+> `AGENTS.md §2.12` (`mamba2-ssd-engineer`).
 
 ## 1. Subagent: `mamba2-ssd-engineer` (also covers Mamba-3)
 
