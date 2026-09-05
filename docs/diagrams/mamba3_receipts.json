@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "scope": "Mamba Archify visual documentation; no training-runtime changes",
+  "diagrams": [
+    {
+      "type": "architecture",
+      "output": "mamba3_architecture.html",
+      "specification": {
+        "sha256": "7c88afd5cc288dcfb0b7f1887290eff1f4cf450fb90ca4a6680fabf6adfda161",
+        "bytes": 6951
+      },
+      "artifact": {
+        "sha256": "c185109e8b64821e6b82ff79137cca28a267c85834525b1d2354606a0c098e98",
+        "bytes": 715040
+      },
+      "validation": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "browser_evidence": "passed",
+      "browser_receipt": "mamba3_architecture.visual-check.json",
+      "visual_review": "passed",
+      "visual_review_scope": "Default READ/still screenshots at 1440x900 and 2048x1320, light and dark: node fit, routes, cards, layout. Export and focus panels not manually exercised.",
+      "correction_rounds": 1
+    },
+    {
+      "type": "dataflow",
+      "output": "mamba3_dataflow.html",
+      "specification": {
+        "sha256": "f569a58fe464aaea9393a737502dd09b3acbdf0512fa13f76e420fb3f95ad8ef",
+        "bytes": 3158
+      },
+      "artifact": {
+        "sha256": "b021ba09c079fce27ee989e517f670c641dfcb6de800fa14b6fd4021f033953d",
+        "bytes": 707123
+      },
+      "validation": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "browser_evidence": "passed",
+      "browser_receipt": "mamba3_dataflow.visual-check.json",
+      "visual_review": "passed",
+      "visual_review_scope": "Default READ/still screenshots at 1440x900 and 2048x1320, light and dark: node fit, routes, cards, layout. Export and focus panels not manually exercised.",
+      "correction_rounds": 1
+    },
+    {
+      "type": "workflow",
+      "output": "mamba3_training_workflow.html",
+      "specification": {
+        "sha256": "bf4b5360f768746d2809ff2ecda4ef186e0be36cebe2f5195cbf155e2e45f5d8",
+        "bytes": 5702
+      },
+      "artifact": {
+        "sha256": "5298e060bbd72c70e269b7a9f4a7252544709cc29e7516212f546f6a21b21870",
+        "bytes": 717891
+      },
+      "validation": {
+        "checksPassed": 9,
+        "checkCount": 9,
+        "compositionProfile": "showcase",
+        "compositionStatus": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "browser_evidence": "passed",
+      "browser_receipt": "mamba3_training_workflow.visual-check.json",
+      "visual_review": "passed",
+      "visual_review_scope": "Default READ/still screenshots at 1440x900 and 2048x1320, light and dark: node fit, routes, cards, layout. Export and focus panels not manually exercised.",
+      "correction_rounds": 1
+    }
+  ],
+  "guide": {
+    "status": "pass",
+    "artifact": {
+      "sha256": "054912c965cd91a957ae3ddbdd1048bc90d41f045bef7f78c880565791faa387",
+      "bytes": 22815
+    },
+    "offline": true,
+    "viewports": [
+      {
+        "width": 1440,
+        "scrollWidth": 1440
+      },
+      {
+        "width": 390,
+        "scrollWidth": 390
+      }
+    ],
+    "links": 26,
+    "recurrenceCases": [
+      {
+        "a": -0.3,
+        "w": 0.8,
+        "d": 0.4,
+        "re": -0.02690533766893831,
+        "im": -0.0047632565852666325,
+        "changed": false
+      },
+      {
+        "a": 0,
+        "w": 3,
+        "d": 1,
+        "re": -0.44807361612916974,
+        "im": 0.893996663600557,
+        "changed": true
+      },
+      {
+        "a": -2,
+        "w": 0.1,
+        "d": 0.1,
+        "re": 0.002368042401868888,
+        "im": 0.0007325213555106861,
+        "changed": true
+      },
+      {
+        "a": -0.65,
+        "w": 1.7,
+        "d": 0.55,
+        "re": -2.1437329679648735e-05,
+        "im": 4.891451239360221e-06,
+        "changed": true
+      }
+    ],
+    "keyboard": "pass",
+    "runtimeErrors": [],
+    "visual_review": "passed",
+    "check_command": "node docs/diagrams/check-guide.mjs docs/diagrams /tmp"
+  },
+  "cpu_tests": {
+    "passed": 32,
+    "skipped": 5,
+    "skips": "GPU/Triton hardware tests"
+  },
+  "vault_sync": {
+    "status": "dry-run only",
+    "reason": "Workspace script would copy 186 Markdown files across unrelated projects; no scoped option."
+  },
+  "documentation_checks": {
+    "exit_code": 0,
+    "output": "[doc-refs] scanned 19 docs, 433 anchors\n[doc-refs] resolution: PASS\n[doc-refs] coverage: PASS\n[doc-refs] line anchors: PASS\n[doc-refs] triton citations: PASS\n[doc-refs] links: PASS\n"
+  }
+}

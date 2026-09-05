@@ -2,6 +2,10 @@
 
 > The full documentation tree for the ~434M-param, pure-PyTorch Mamba-3 reproduction with complex-valued SSD state spaces. Everything is **symbol-anchored to the code** and machine-checked by `tests/test_doc_refs.py` (`--coverage --links` in CI).
 
+## Visual guide
+
+[Interactive architecture, data, training and optimization guide](diagrams/mamba3_interactive_guide.html) — three source-corrected Archify maps, an interactive complex-state experiment, and explicit runtime limitations. See [source notes and verification](guides/visual-guide.md).
+
 ## Reading paths
 
 | You want to… | Start here |

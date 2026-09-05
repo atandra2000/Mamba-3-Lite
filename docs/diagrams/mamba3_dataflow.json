@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Mamba-3-Lite Data Pipeline",
+    "output": "docs/diagrams/mamba3_dataflow.html",
+    "viewBox": [
+      1080,
+      400
+    ],
+    "quality_profile": "showcase"
+  },
+  "stages": [
+    {
+      "label": "Corpus Ingestion"
+    },
+    {
+      "label": "Tokenization"
+    },
+    {
+      "label": "Binary Shards"
+    },
+    {
+      "label": "Dataset Map"
+    },
+    {
+      "label": "GPU DataLoader"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "corpus-mix",
+      "type": "database",
+      "label": "Corpus Mixture",
+      "sublabel": "FineWeb, Stack, Math",
+      "stage": 0,
+      "row": 0,
+      "tag": "8.0B tokens"
+    },
+    {
+      "id": "tokenizer",
+      "type": "backend",
+      "label": "GPT-2 BPE",
+      "sublabel": "Vocab: 50,257",
+      "stage": 1,
+      "row": 0,
+      "tag": "uint32 stream"
+    },
+    {
+      "id": "shards",
+      "type": "database",
+      "label": "Raw uint32 shards",
+      "sublabel": "shard_*.bin",
+      "stage": 2,
+      "row": 0,
+      "tag": "producer format"
+    },
+    {
+      "id": "mmap-ds",
+      "type": "backend",
+      "label": "Tensor shard loader",
+      "sublabel": "O(log S) bisect",
+      "stage": 3,
+      "row": 0,
+      "tag": "torch.load mmap"
+    },
+    {
+      "id": "dataloader",
+      "type": "backend",
+      "label": "DataLoader",
+      "sublabel": "B=16, seq=2048",
+      "stage": 4,
+      "row": 0,
+      "tag": "0 workers; unpinned"
+    }
+  ],
+  "flows": [
+    {
+      "from": "corpus-mix",
+      "to": "tokenizer",
+      "label": "text batches",
+      "classification": "jsonl",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "tokenizer",
+      "to": "shards",
+      "label": "packed tokens",
+      "classification": "uint32",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "shards",
+      "to": "mmap-ds",
+      "label": "format mismatch",
+      "classification": "bridge absent",
+      "variant": "security",
+      "route": "straight"
+    },
+    {
+      "from": "mmap-ds",
+      "to": "dataloader",
+      "label": "(x, y) windows",
+      "classification": "stride=2048",
+      "variant": "emphasis",
+      "route": "straight"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Canonical seven-source recipe",
+      "items": [
+        "FineWeb-Edu 40% \u00b7 DCLM 15% \u00b7 Python 15% \u00b7 Jupyter 5%.",
+        "OpenMath 10% \u00b7 arXiv 10% \u00b7 Cosmopedia 5%; target 8B tokens."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "A real integration gap",
+      "items": [
+        "Preparation delegates to shared_data; output is raw uint32.",
+        "PretrainDataset calls torch.load(weights_only=True, mmap=True).",
+        "A .bin suffix does not make these formats interchangeable."
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Actual batching",
+      "items": [
+        "2049-token windows, stride 2048; targets shift by one.",
+        "torch.cat joins shard pieces; conversion and batches allocate.",
+        "DataLoader: num_workers=0, shuffle=False, pin_memory=False."
+      ]
+    }
+  ]
+}

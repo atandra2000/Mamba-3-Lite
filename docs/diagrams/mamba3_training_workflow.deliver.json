@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "workflow",
+  "input": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_training_workflow.json",
+  "output": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_training_workflow.html",
+  "specification": {
+    "sha256": "bf4b5360f768746d2809ff2ecda4ef186e0be36cebe2f5195cbf155e2e45f5d8",
+    "bytes": 5702
+  },
+  "artifact": {
+    "sha256": "5298e060bbd72c70e269b7a9f4a7252544709cc29e7516212f546f6a21b21870",
+    "bytes": 717891
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}
