@@ -46,6 +46,27 @@ The complex recurrence `h_t = exp((A_real + i·A_imag)·dt) · h_{t-1} + (B_real
 
 ---
 
+## 🗺️ Visual Architecture Atlas
+
+> Explore the full **[Interactive Visual Systems Guide](docs/diagrams/mamba3_interactive_guide.html)**: three verified Archify showcase maps, live complex-state SSD simulation, interactive parameter calculator, and [verification receipts](docs/diagrams/mamba3_receipts.json).
+
+<div align="center">
+  <a href="docs/diagrams/mamba3_interactive_guide.html">
+    <img src="docs/diagrams/mamba3_architecture.visual-check.1440x900.dark.png" alt="Mamba-3 Architecture Overview" width="100%" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);" />
+  </a>
+  <p><em>Figure 1: Mamba-3-Lite Architecture Map — 28-layer complex SSD state-space model with $N=64$ complex64 states, MIMO head mixing, and chunkwise recurrence. Click image to open interactive guide.</em></p>
+</div>
+
+### Interactive Architecture & Systems Diagrams
+
+| Diagram | Description | Interactive HTML | Visual Preview |
+|---|---|:---:|:---:|
+| **Complex SSD Architecture** | 28-layer Mamba-3 block, complex64 SSD recurrence, MIMO head mixing matrix, and SwiGLU FFN | [Open Map ↗](docs/diagrams/mamba3_architecture.html) | [PNG](docs/diagrams/mamba3_architecture.visual-check.1440x900.dark.png) |
+| **Data Pipeline** | 8.0B-token universal pipeline, GPT-2 BPE tokenizer, binary chunk sharding, and memory-mapped `PretrainDataset` | [Open Map ↗](docs/diagrams/mamba3_dataflow.html) | [PNG](docs/diagrams/mamba3_dataflow.visual-check.1440x900.dark.png) |
+| **Training Workflow** | End-to-end pretraining loop, chunked cross-entropy (chunk=4096), AdamW optimizer, and state checkpointing | [Open Map ↗](docs/diagrams/mamba3_training_workflow.html) | [PNG](docs/diagrams/mamba3_training_workflow.visual-check.1440x900.dark.png) |
+
+---
+
 ## 🏗 Architecture
 
 ```

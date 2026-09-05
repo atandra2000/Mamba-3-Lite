@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "dataflow",
+  "input": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_dataflow.json",
+  "output": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_dataflow.html",
+  "specification": {
+    "sha256": "f569a58fe464aaea9393a737502dd09b3acbdf0512fa13f76e420fb3f95ad8ef",
+    "bytes": 3158
+  },
+  "artifact": {
+    "sha256": "b021ba09c079fce27ee989e517f670c641dfcb6de800fa14b6fd4021f033953d",
+    "bytes": 707123
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

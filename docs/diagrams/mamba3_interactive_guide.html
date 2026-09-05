@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mamba-3-Lite — Architecture, data, training and optimizations</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f4ef;--paper:#fffefa;--ink:#172b31;--muted:#53666c;--line:#d4ddd9;--accent:#006e65;--soft:#e6efea}
+@media(prefers-color-scheme:dark){:root{--bg:#111a1e;--paper:#18252a;--ink:#e4eeeb;--muted:#a6bbb9;--line:#364b50;--accent:#7be0c2;--soft:#203c38}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.7 system-ui,sans-serif}a{color:var(--accent);text-underline-offset:4px}a:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:5px}header,main,footer{max-width:1160px;margin:auto;padding:40px 28px}header{padding-top:70px}.eyebrow,.num{font:600 12px/1.5 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}h1{font-size:clamp(40px,6vw,76px);line-height:1.06;letter-spacing:-.05em;max-width:850px;margin:22px 0}h2{font-size:34px;line-height:1.2;letter-spacing:-.03em}h3{font-size:21px;line-height:1.3}p{max-width:82ch}.lead{font-size:21px;color:var(--muted);max-width:760px}.metrics,.chapters{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:32px 0}.metric,.chapter{background:var(--paper);border:1px solid var(--line);padding:22px;border-radius:12px}.metric strong{display:block;font-size:28px;letter-spacing:-.03em}.metric span,.chapter p{color:var(--muted);font-size:14px}.chapter{display:block;text-decoration:none}.chapter:hover{border-color:var(--accent)}.chapter h3{color:var(--ink);margin:12px 0}.chapter p{margin:0}nav{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:17px 0;display:flex;flex-wrap:wrap;gap:12px 26px}nav a{font-size:14px}section{padding:32px 0 46px;border-bottom:1px solid var(--line);scroll-margin-top:20px}.open{display:inline-block;background:var(--soft);padding:9px 17px;border:1px solid var(--line);border-radius:6px;font-weight:600;text-decoration:none}.equation,aside{padding:20px 24px;border-left:3px solid var(--accent);background:var(--paper);margin:24px 0}.equation{font:15px/1.9 ui-monospace,monospace;overflow-wrap:anywhere}code{font-size:.87em;background:var(--soft);padding:2px 5px;border-radius:3px}table{border-collapse:collapse;width:100%;font-size:15px;margin:25px 0}th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--line);vertical-align:top}th{background:var(--soft)}.table{overflow-x:auto}details{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:15px 20px;margin:14px 0}summary{cursor:pointer;font-weight:600}.source{font:13px/1.8 ui-monospace,monospace;color:var(--muted);overflow-wrap:anywhere}.two{display:grid;grid-template-columns:1fr 1fr;gap:30px}.muted,footer{color:var(--muted)}footer{font-size:14px}.thumb{display:block;width:100%;border:1px solid var(--line);border-radius:8px;margin-top:22px} @media(max-width:760px){header,main,footer{padding:28px 20px}.metrics,.chapters,.two{grid-template-columns:1fr}h2{font-size:28px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
+.controls{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin:24px 0}.controls label{display:block;font-size:15px}.controls input{width:100%;min-height:44px}svg{width:100%;height:auto}svg text{font-family:system-ui,sans-serif}.figure{padding:18px;background:var(--paper);border:1px solid var(--line);border-radius:10px}.formula{white-space:pre-wrap;font:15px/1.9 ui-monospace,monospace;overflow-wrap:anywhere;padding:20px;background:var(--soft);border-radius:8px}.preview{width:100%;display:block;border:1px solid var(--line);margin:22px 0;border-radius:8px}@media(max-width:760px){.controls{grid-template-columns:1fr}}
+</style>
+<header><div class="eyebrow">Mamba-3-Lite / Source-grounded visual guide</div>
+<h1>Sequence memory,<br>without attention.</h1>
+<p class="lead">A document becomes tokens, a token drives a complex recurrence, and a gradient updates the model. Explore the implemented Mamba-3-Lite system, including where the runtime differs from its design goals.</p>
+<div class="metrics"><div class="metric"><strong>28 blocks</strong><span>Pure SSM; no attention, MoE or MTP</span></div><div class="metric"><strong>64 complex states</strong><span>Decay and rotation per head</span></div><div class="metric"><strong>32,768 tokens</strong><span>One default micro-batch: 16 × 2048</span></div></div>
+<nav aria-label="Guide sections"><a href="#architecture">Architecture</a><a href="#ssd">Complex SSD</a><a href="#data">Data pipeline</a><a href="#training">Training</a><a href="#optimization">Optimizations</a><a href="#evidence">Evidence</a></nav></header><main>
+<div class="chapters"><a class="chapter" href="mamba3_architecture.html"><span class="num">Architecture map</span><h3>Inside the model ↗</h3><p>Projection, SSD, MIMO, residuals and the tied vocabulary head.</p></a><a class="chapter" href="mamba3_dataflow.html"><span class="num">Data-flow map</span><h3>Producer meets consumer ↗</h3><p>The shared corpus and the explicit storage-format gap.</p></a><a class="chapter" href="mamba3_training_workflow.html"><span class="num">Training workflow</span><h3>Learn, check, recover ↗</h3><p>Full-logit loss, accumulation, finite-loss guard and optimizer.</p></a></div>
+<section id="architecture"><div class="num">01 / Representation flow</div><h2>Two residual branches in every block.</h2>
+<p>The embedding creates a [B,T,1024] representation. Each of the 28 blocks first mixes information across sequence positions with complex SSD, then applies a position-wise SwiGLU feed-forward network. A residual addition follows each branch.</p>
+<div class="formula">h = RMSNorm(x)
+q = in_proj(h)                       # 1024 → 5136 channels
+u = SSD(q.x, A, q.B, q.C, q.dt)
+x = x + out_proj(MIMO(u))
+x = x + SwiGLU(RMSNorm(x))           # FFN width 2048
+logits = tied_head(final_norm(x))    # after all 28 blocks</div>
+<p>The input projection emits 16 × (64 + 4×64 + 1) = 5136 channels per token. A single matrix multiplication produces the SSD input, real/imaginary B and C components, and the raw step-size values. The learned complex A has one scalar per head and is initialized to −1.</p>
+<div class="table"><table><thead><tr><th>Projection slice</th><th>Role</th><th>Reshaped tensor</th></tr></thead><tbody><tr><td>0:1024</td><td>Real input x</td><td>[B,T,16,64]</td></tr><tr><td>1024:3072</td><td>B real + imaginary</td><td>[B,T,16,64] complex64</td></tr><tr><td>3072:5120</td><td>C real + imaginary</td><td>[B,T,16,64] complex64</td></tr><tr><td>5120:5136</td><td>Raw dt</td><td>[B,T,16], softplus inside SSD</td></tr></tbody></table></div>
+<p>MIMO flattens the 16 heads and 64 channels into a 1024-vector, applies a dense 1024×1024 matrix and restores the shape. It mixes both head and channel coordinates. Identity initialization initially passes the scan output through unchanged; it does not guarantee future stability. The model-wide initializer preserves that identity.</p>
+<p>Input embedding and output head share weights at vocabulary size 50,257. The standard configuration has approximately 434M parameters. It contains no causal convolution. The model returns a full [B,T,50257] logits tensor; it has no hidden-state-only loss interface or incremental state-cache API.</p>
+<a class="open" href="mamba3_architecture.html">Explore the model map →</a>
+<p class="source">Source: <a href="../../models/mamba_block.py">models/mamba_block.py:Mamba3Block</a> · <a href="../../models/mimo.py">models/mimo.py:MIMO</a> · <a href="../../models/transformer.py">models/transformer.py:Mamba3Transformer</a></p></section>
+<section id="ssd"><div class="num">02 / State-space duality</div><h2>Decay controls memory. Rotation controls phase.</h2>
+<p>For each head, let A = α + iω and Δ = softplus(dt). The transition exp(ΔA) scales the state by exp(Δα) and rotates it by Δω. Negative α forgets older inputs; the imaginary component permits oscillatory dynamics. A is learned directly, so a negative real part is an initialization choice, not an enforced parameter constraint.</p>
+<div class="formula">aₜ = exp(softplus(dtₜ) × A)
+sₜ = aₜ sₜ₋₁ + Bₜ ⊗ xₜ
+yₜ = Re(Σₙ Cₜ,ₙ sₜ,ₙ)
+state shape: [B,H,N,D] = [B,16,64,64]</div>
+<p>The readout is a complex bilinear contraction; the code does not conjugate C. The sequential oracle starts from a zero state. The production chunkwise function reorganizes the same recurrence and returns the real part.</p>
+<h3>Within chunks, then across chunks.</h3>
+<p>With chunk length C=64, an inclusive prefix sum of A_log = softplus(dt)×A gives each source-to-destination decay. Inside a chunk, L[l,s] = exp(prefix[l] − prefix[s]) for s≤l, and zero otherwise. The lower triangle includes the diagonal. Einsum combines input x, B, C and L to produce Y_diag and chunk-end states.</p>
+<p>The implementation then constructs a strictly lower-triangular decay matrix over chunk pairs, propagates completed chunk states with an einsum, and adds Y_off. It does not run a serial T/C loop: the explicit chunk-pair matrix has a (T/C)² storage term. Therefore a blanket “linear training memory at every context length” claim would be misleading. The mathematical recurrence admits fixed-size streaming state, but the public model does not expose that incremental interface.</p>
+<div class="formula">Y = Re(Y_diag + Y_off)
+64 complex64 entries × 8 bytes = 128 float32 entries × 4 bytes
+Both occupy 512 bytes per state/channel slice.</div>
+<p>Complex packing halves the number of named state entries, not their byte count at these dtypes. Perplexity parity with another trained model requires evaluation; the local numerical test compares the chunkwise algorithm with its sequential oracle.</p>
+<h3>Interactive decay-and-rotation experiment</h3><p>This illustration starts at s₀=1 with no input forcing (Bₜxₜ=0). It isolates the homogeneous transition, not the complete trained model. The step-size slider is already positive Δ, so the simulator does not apply softplus again.</p>
+<div class="controls"><div><label for="sim-alpha">Decay α <output id="val-alpha" for="sim-alpha">−0.3</output></label><input type="range" id="sim-alpha" min="-2" max="0" step="0.05" value="-0.3"></div><div><label for="sim-omega">Frequency ω <output id="val-omega" for="sim-omega">0.8</output></label><input type="range" id="sim-omega" min="0.1" max="3" step="0.1" value="0.8"></div><div><label for="sim-dt">Positive step Δ <output id="val-dt" for="sim-dt">0.4</output></label><input type="range" id="sim-dt" min="0.1" max="1" step="0.05" value="0.4"></div></div>
+<div class="figure"><svg id="complex-svg" viewBox="0 0 700 280" role="img" aria-label="Complex-state trajectory and its real-part waveform over thirty steps"></svg></div>
+<p class="source">Source: <a href="../../models/ssd_complex.py">models/ssd_complex.py:ssd_complex_chunkwise</a> · <a href="../concepts/ssd-theory.md">SSD derivation</a> · <a href="../concepts/state-space-foundations.md">State-space foundations</a></p></section>
+<section id="data"><div class="num">03 / Corpus to tensors</div><h2>The file suffix is not a storage contract.</h2>
+<p>The canonical shared recipe targets 8B tokens: FineWeb-Edu 40%, DCLM 15%, Stack Python 15%, Stack Jupyter 5%, OpenMath 10%, arXiv 10% and Cosmopedia 5%. The older five-source mix in configuration comments is not the active preparation recipe.</p>
+<p>The local preparation shim delegates download, cleaning, deduplication, tokenization and packing to workspace shared_data. It writes a GPT-2 tokenizer override: V=50,257, EOS=50,256, PAD=50,256. Packed document boundaries require EOS separators. The producer emits raw uint32 shards, conventionally 50M tokens each—about 200 MB of raw payload.</p>
+<aside><strong>Current integration gap:</strong> PretrainDataset opens shard_*.bin with torch.load(weights_only=True, mmap=True). That API expects serialized PyTorch tensors, not raw uint32 bytes. No conversion bridge is implemented by this preparation shim. The diagram marks this handoff as a mismatch; successful preparation alone does not establish trainability.</aside>
+<p>For compatible serialized tensor shards, the loader builds cumulative offsets and locates a global token index with binary search. It gathers a 2049-token window across shard boundaries using torch.cat, converts to long, and returns the first/last 2048 tokens as input and target. The stride is 2048, so neighboring windows share the boundary token.</p>
+<div class="formula">window: [A, B, C, EOS, D]
+input:  [A, B, C, EOS]
+target: [B, C, EOS, D]</div>
+<p>The trainer builds DataLoader with batch size 16, num_workers=0 and drop_last=True. Shuffle and pin_memory use their False defaults. Device transfers request non_blocking=True, but that alone does not prove overlapped pinned-memory transfer. Memory mapping avoids an eager full-file load; resident pages, torch.cat, dtype conversion and batch collation still consume memory.</p>
+<a class="open" href="mamba3_dataflow.html">Inspect the producer/consumer handoff →</a>
+<p class="source">Source: <a href="../../data/prepare_data.py">data/prepare_data.py:main</a> · <a href="../../training/pretrain.py">training/pretrain.py:PretrainDataset</a> · <a href="../training.md">Preparation reference</a></p></section>
+<section id="training"><div class="num">04 / Learning and recovery</div><h2>Micro-steps and optimizer updates are different clocks.</h2>
+<p>Pretrainer builds the model, optional torch.compile wrapper, AdamW and warmup/cosine schedulers. Eligible CUDA operations use BF16 when supported; CPU smoke tests disable autocast. The raw model remains available for checkpointing. AdamW uses fused=False and separates decay by tensor rank: tensors with rank at least two decay, one-dimensional parameters do not.</p>
+<div class="formula">Forward → full-logit CE → loss / accumulation
+→ finite-loss check → backward
+→ every 2 micro-steps: clip 1.0 → AdamW → scheduler → zero gradients</div>
+<div class="table"><table><thead><tr><th>Setting</th><th>Actual interpretation</th></tr></thead><tbody><tr><td>Micro-batch 16 × 2048</td><td>32,768 token positions per successful loop iteration.</td></tr><tr><td>Accumulation 2</td><td>Normally 65,536 tokens per optimizer update.</td></tr><tr><td>max_steps = 256,000</td><td>Successful micro-steps; nominally 128,000 updates and 8,388,608,000 token positions, excluding recovery replays.</td></tr><tr><td>Learning rate</td><td>Warmup from 1% of 3e-4 (3e-6) to 3e-4 over 2000 optimizer updates; cosine target 1.5e-5.</td></tr><tr><td>Schedule horizon</td><td>Cosine T_max is max_steps − warmup_steps. Because it advances on optimizer updates, the default run does not reach the configured cosine endpoint.</td></tr><tr><td>Logging / saving</td><td>Every 50 / 4000 counted micro-steps; checks precede the global_step increment. A final checkpoint follows the loop.</td></tr></tbody></table></div>
+<p>If loss is nonfinite, the guard clears gradients and skips backward. After five consecutive bad losses it restores the latest complete checkpoint, or raises if none exists. It is a finite-loss check, not a general detector of finite loss spikes or nonfinite gradients.</p>
+<p>CheckpointManager writes model safetensors, optimizer state and JSON metadata directly. Latest-step discovery requires all three paths to exist; that is not an atomic transaction or a file-integrity check. Metadata carries scheduler state, optimizer-step count and configuration. RNG state and sampler/data position are not persisted, so bit-exact resume is not established. The training loop has no held-out validation or sample-generation hook.</p>
+<a class="open" href="mamba3_training_workflow.html">Follow the training workflow →</a>
+<p class="source">Source: <a href="../../training/pretrain.py">training/pretrain.py:train_step</a> · training/pretrain.py:Pretrainer · <a href="../../utils/checkpoint.py">utils/checkpoint.py:CheckpointManager</a></p></section>
+<section id="optimization"><div class="num">05 / Resource budgets</div><h2>What is implemented—and what is only a proposal.</h2>
+<div class="table"><table><thead><tr><th>Mechanism</th><th>Benefit and boundary</th></tr></thead><tbody>
+<tr><td>Chunkwise complex SSD</td><td>Exposes within-chunk contractions in parallel. This implementation also materializes cross-chunk pairwise decay; its scaling must be measured.</td></tr><tr><td>Gradient checkpointing</td><td>Recomputes block internals during backward instead of retaining every activation. Enabled by the training config; the model config default alone is False. No fixed 65% saving is demonstrated here.</td></tr><tr><td>BF16 / complex64</td><td>Eligible CUDA operations use BF16, while recurrent complex tensors preserve real and imaginary FP32 components. Complex64 is eight bytes per value.</td></tr><tr><td>Tied vocabulary weights</td><td>Share one embedding/head matrix, saving 50,257×1024 = 51,463,168 parameter entries versus an untied head.</td></tr><tr><td>Unified projections</td><td>One input projection produces x/B/C/dt; one gate/up projection feeds SwiGLU. Fewer projections do not guarantee a measured speedup.</td></tr><tr><td>No causal convolution</td><td>The block omits the convolution stage; SSD handles sequence mixing. Benchmarking is needed to quantify its performance effect.</td></tr><tr><td>Compile and TF32</td><td>torch.compile uses max-autotune by default; TF32 is enabled on CUDA. Complex operations and backend support constrain attainable acceleration.</td></tr><tr><td>Accumulation</td><td>Combines two micro-batches before an update. It reduces the batch needed at once, without reducing total token work.</td></tr><tr><td>Mmap</td><td>Useful for compatible serialized tensor shards. The raw-binary preparation bridge is currently missing.</td></tr><tr><td>Triton opt-in</td><td>The trainer requires ssd_dispatch='triton' and ENABLE_TRITON_KERNELS=1. At runtime the block catches kernel exceptions, warns once and uses PyTorch. This differs from the documented fail-loud policy.</td></tr><tr><td>Chunked CE</td><td><strong>Not implemented in train_step.</strong> The full vocabulary logits are created before ordinary cross-entropy. It must not be counted as a current memory optimization.</td></tr></tbody></table></div>
+<div class="formula">Full-logit payload at B=16, T=2048, V=50257:
+BF16: 16 × 2048 × 50257 × 2 = 3.294 GB
+FP32: 16 × 2048 × 50257 × 4 = 6.587 GB
+These are tensor sizes, not total training peak memory.</div>
+<p>Clipping and finite-loss recovery support stability, not throughput. The full pretraining run and quality comparisons remain unverified. No percentage memory saving, speed multiplier, perplexity parity or fixed A100 training time is asserted by this guide.</p></section>
+<section id="evidence"><div class="num">06 / Evidence and further reading</div><h2>Source is the final authority.</h2>
+<p>Checked against the local implementation and canonical mixture. Existing conceptual/configuration documentation contains statements that conflict with the runtime; the specific differences above are intentional corrections in this visual package. Runtime fixes are separate work, not silently included in an illustration task.</p>
+<p><a href="../guides/visual-guide.md">Source notes, verification and remaining runtime gaps</a> · <a href="mamba3_receipts.json">Artifact and browser receipts</a> · <a href="../README.md">Documentation index</a></p>
+</section></main><footer>Local, dependency-free guide. Three standalone Archify maps; native SVG experiment. Model and training code unchanged.</footer>
+<script>function updateComplexSim() {
+  const alpha = parseFloat(document.getElementById('sim-alpha').value);
+  const omega = parseFloat(document.getElementById('sim-omega').value);
+  const dt = parseFloat(document.getElementById('sim-dt').value);
+
+  document.getElementById('val-alpha').textContent = alpha.toFixed(2);
+  document.getElementById('val-omega').textContent = omega.toFixed(2);
+  document.getElementById('val-dt').textContent = dt.toFixed(2);
+
+  const svg = document.getElementById('complex-svg');
+  if (!svg) return;
+
+  const width = 700;
+  const height = 280;
+  const cx = 160;
+  const cy = 140;
+  const maxR = 100;
+
+  let elements = `
+    <!-- Complex Plane Axes -->
+    <line x1="30" y1="${cy}" x2="290" y2="${cy}" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="3 3" />
+    <line x1="${cx}" y1="20" x2="${cx}" y2="260" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="3 3" />
+    <circle cx="${cx}" cy="${cy}" r="${maxR}" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="4 4" />
+    <text x="275" y="${cy - 8}" fill="var(--muted)" font-size="11" font-family="var(--font-mono)">Re</text>
+    <text x="${cx + 8}" y="35" fill="var(--muted)" font-size="11" font-family="var(--font-mono)">Im</text>
+    <text x="30" y="25" fill="var(--accent)" font-size="12" font-weight="600">Complex State Trajectory h_t</text>
+
+    <!-- Waveform Box -->
+    <rect x="340" y="30" width="340" height="220" rx="6" fill="var(--paper)" stroke="var(--line)" />
+    <line x1="350" y1="140" x2="670" y2="140" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 2" />
+    <text x="355" y="50" fill="var(--accent)" font-size="12" font-weight="600">Decaying Oscillation Output y_t = Re(h_t)</text>
+  `;
+
+  // Compute recurrence trajectory
+  const steps = 30;
+  let re = 1.0;
+  let im = 0.0;
+  const decay = Math.exp(alpha * dt);
+  const cosW = Math.cos(omega * dt);
+  const sinW = Math.sin(omega * dt);
+
+  let pathPlane = `M ${cx + re * maxR} ${cy - im * maxR}`;
+  let pathWave = `M 360 ${140 - re * 70}`;
+
+  for (let t = 1; t <= steps; t++) {
+    // Rotation + Decay
+    const nextRe = decay * (re * cosW - im * sinW);
+    const nextIm = decay * (re * sinW + im * cosW);
+
+    const px = cx + nextRe * maxR;
+    const py = cy - nextIm * maxR;
+    pathPlane += ` L ${px} ${py}`;
+
+    const wx = 360 + (t / steps) * 300;
+    const wy = 140 - nextRe * 70;
+    pathWave += ` L ${wx} ${wy}`;
+
+    elements += `<circle cx="${px}" cy="${py}" r="${t === steps ? 4 : 2}" fill="${t === steps ? 'var(--accent)' : 'var(--accent)'}" />`;
+    re = nextRe;
+    im = nextIm;
+  }
+
+  elements += `
+    <path d="${pathPlane}" fill="none" stroke="var(--accent)" stroke-width="2" />
+    <path d="${pathWave}" fill="none" stroke="var(--accent)" stroke-width="2.5" />
+  `;
+
+  svg.innerHTML = elements;
+  svg.dataset.finalReal = re;
+  svg.dataset.finalImag = im;
+}
+
+
+document.querySelectorAll('.controls input').forEach(input => input.addEventListener('input', updateComplexSim));
+updateComplexSim();
+</script></html>

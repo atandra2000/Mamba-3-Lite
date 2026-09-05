@@ -1,0 +1,262 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Mamba-3-Lite Training Workflow",
+    "output": "docs/diagrams/mamba3_training_workflow.html",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "data",
+      "label": "Data Pipeline"
+    },
+    {
+      "id": "compute",
+      "label": "Compute & Loss"
+    },
+    {
+      "id": "loss",
+      "label": "Optimizer Step"
+    },
+    {
+      "id": "policy",
+      "label": "Fault Tolerance",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "intake",
+      "label": "Batch Assembly",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "compute_loss",
+      "label": "Forward & Backward",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "step_save",
+      "label": "Optimize & Step",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "groups": [
+    {
+      "id": "batch_prep",
+      "label": "Batch intake",
+      "lane": "data",
+      "fromCol": 0,
+      "toCol": 1,
+      "variant": "emphasis"
+    },
+    {
+      "id": "opt_update",
+      "label": "Weight update",
+      "lane": "loss",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "emphasis"
+    },
+    {
+      "id": "recovery_path",
+      "label": "Instability recovery",
+      "lane": "policy",
+      "fromCol": 3,
+      "toCol": 5,
+      "variant": "security"
+    }
+  ],
+  "mainPath": [
+    "fetch-batch",
+    "hbm-transfer",
+    "autocast-fwd",
+    "chunk-loss",
+    "guard-detect",
+    "grad-clip",
+    "cos-sched"
+  ],
+  "nodes": [
+    {
+      "id": "fetch-batch",
+      "lane": "data",
+      "col": 0,
+      "type": "database",
+      "label": "Fetch Window",
+      "sublabel": "B=16, T=2048",
+      "tag": "mmap shards",
+      "width": 132
+    },
+    {
+      "id": "hbm-transfer",
+      "lane": "data",
+      "col": 1,
+      "type": "backend",
+      "label": "HBM Transfer",
+      "sublabel": "unpinned loader",
+      "tag": "non_blocking request",
+      "width": 132
+    },
+    {
+      "id": "autocast-fwd",
+      "lane": "compute",
+      "col": 2,
+      "type": "backend",
+      "label": "BF16 Forward",
+      "sublabel": "Complex SSD Scan",
+      "tag": "Grad Checkpointed",
+      "width": 132
+    },
+    {
+      "id": "chunk-loss",
+      "lane": "compute",
+      "col": 3,
+      "type": "backend",
+      "label": "Full-logit CE",
+      "sublabel": "check before backward",
+      "tag": "accum=2",
+      "width": 132
+    },
+    {
+      "id": "grad-clip",
+      "lane": "loss",
+      "col": 4,
+      "type": "backend",
+      "label": "Clip & AdamW",
+      "sublabel": "grad_norm=1.0",
+      "tag": "every 2 steps",
+      "width": 132
+    },
+    {
+      "id": "cos-sched",
+      "lane": "loss",
+      "col": 5,
+      "type": "backend",
+      "label": "Cosine LR",
+      "sublabel": "warmup 2k, decay",
+      "width": 132
+    },
+    {
+      "id": "guard-detect",
+      "lane": "policy",
+      "col": 3,
+      "type": "security",
+      "label": "Finite Loss?",
+      "sublabel": "nonfinite loss only",
+      "tag": "safety gate",
+      "width": 132
+    },
+    {
+      "id": "blocked-step",
+      "lane": "policy",
+      "col": 4,
+      "type": "security",
+      "label": "Discard Step",
+      "sublabel": "zero_grad()",
+      "width": 132
+    },
+    {
+      "id": "ckpt-rollback",
+      "lane": "policy",
+      "col": 5,
+      "type": "messagebus",
+      "label": "Rollback",
+      "sublabel": "restore last valid",
+      "tag": "5 bad losses",
+      "width": 132
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "fetch-batch",
+      "to": "hbm-transfer",
+      "variant": "default"
+    },
+    {
+      "id": "e2",
+      "from": "hbm-transfer",
+      "to": "autocast-fwd",
+      "label": "micro-batch",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e3",
+      "from": "autocast-fwd",
+      "to": "chunk-loss",
+      "label": "logits",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e4",
+      "from": "guard-detect",
+      "to": "grad-clip",
+      "label": "finite: backward",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e5",
+      "from": "grad-clip",
+      "to": "cos-sched",
+      "variant": "default"
+    },
+    {
+      "id": "e6",
+      "from": "chunk-loss",
+      "to": "guard-detect",
+      "label": "verify loss",
+      "variant": "security"
+    },
+    {
+      "id": "e7",
+      "from": "guard-detect",
+      "to": "blocked-step",
+      "label": "anomaly found",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "e8",
+      "from": "blocked-step",
+      "to": "ckpt-rollback",
+      "label": ">= 5 consecutive",
+      "variant": "dashed",
+      "role": "branch"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Forward and accumulation",
+      "items": [
+        "Eligible CUDA operations use BF16; SSD uses complex64.",
+        "Full [B,T,V] logits feed ordinary cross-entropy.",
+        "Two successful micro-steps normally produce one optimizer update."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Optimizer and schedule",
+      "items": [
+        "AdamW, fused=False; decay applies to tensors with ndim \u2265 2.",
+        "Clip norm to 1.0; step optimizer, then scheduler, then clear grads.",
+        "Warmup uses optimizer updates; max_steps counts micro-steps."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Recovery and persistence",
+      "items": [
+        "Nonfinite loss skips backward and clears accumulated gradients.",
+        "Five consecutive bad losses restore a checkpoint or abort if absent.",
+        "Three direct-write files; no atomic rename, RNG or data-cursor restore."
+      ]
+    }
+  ]
+}

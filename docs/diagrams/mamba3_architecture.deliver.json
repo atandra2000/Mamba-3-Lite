@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_architecture.json",
+  "output": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_architecture.html",
+  "specification": {
+    "sha256": "7c88afd5cc288dcfb0b7f1887290eff1f4cf450fb90ca4a6680fabf6adfda161",
+    "bytes": 6951
+  },
+  "artifact": {
+    "sha256": "c185109e8b64821e6b82ff79137cca28a267c85834525b1d2354606a0c098e98",
+    "bytes": 715040
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}
