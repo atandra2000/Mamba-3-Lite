@@ -6,12 +6,12 @@
   "input": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_architecture.json",
   "output": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_architecture.html",
   "specification": {
-    "sha256": "7c88afd5cc288dcfb0b7f1887290eff1f4cf450fb90ca4a6680fabf6adfda161",
-    "bytes": 6951
+    "sha256": "9ba6de7b7052004a675437a97d5591df4f920f7b3a7eba4293c350e2d59a028b",
+    "bytes": 4349
   },
   "artifact": {
-    "sha256": "c185109e8b64821e6b82ff79137cca28a267c85834525b1d2354606a0c098e98",
-    "bytes": 715040
+    "sha256": "4492a773dc1f422b018ed374bae88ae1c41c6075b15f2c57e1bb5508140c644e",
+    "bytes": 710117
   },
   "validation": {
     "checksPassed": 9,

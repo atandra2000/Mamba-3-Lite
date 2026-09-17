@@ -2,348 +2,241 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Mamba-3-Lite Architecture",
-    "output": "docs/diagrams/mamba3_architecture.html",
+    "title": "Mamba-3-Lite \u00b7 Model",
     "quality_profile": "showcase",
     "viewBox": [
-      1160,
-      640
-    ],
-    "views": [
-      {
-        "id": "full-stack",
-        "label": "Complete Model Stack",
-        "focus": [
-          "tok-in",
-          "embed",
-          "norm1",
-          "in-proj",
-          "ssd-core",
-          "mimo-mix",
-          "out-proj",
-          "norm2",
-          "swiglu-ffn",
-          "norm-f",
-          "lm-head",
-          "loss-fn"
-        ],
-        "note": "Complete token flow through Embedding, 28x Mamba-3 blocks with complex SSD, and LM Head."
-      },
-      {
-        "id": "mamba-block",
-        "label": "Mamba-3 Block Internals",
-        "focus": [
-          "norm1",
-          "in-proj",
-          "ssd-core",
-          "mimo-mix",
-          "out-proj",
-          "norm2",
-          "swiglu-ffn"
-        ],
-        "note": "Inside the Mamba-3 Block: Complex SSD (N=64 complex64), MIMO cross-head mixer, and SwiGLU FFN."
-      },
-      {
-        "id": "complex-ssd",
-        "label": "Complex SSD & Discretization",
-        "focus": [
-          "in-proj",
-          "ssd-core",
-          "mimo-mix"
-        ],
-        "note": "Input projection splitting, complex parameter mapping, and chunkwise parallel scan."
-      }
+      1120,
+      700
     ]
   },
   "components": [
     {
-      "id": "tok-in",
-      "type": "external",
-      "label": "Token Input",
-      "sublabel": "B x T tokens (GPT-2)",
-      "pos": [
-        40,
-        140
-      ],
-      "size": [
-        140,
-        60
-      ]
-    },
-    {
       "id": "embed",
       "type": "backend",
-      "label": "Token Embedding",
-      "sublabel": "d_model=1024, V=50257",
+      "label": "Token embedding",
+      "sublabel": "GPT-2; V=50257; d=1024",
       "pos": [
-        220,
+        30,
         140
       ],
       "size": [
-        140,
-        60
-      ],
-      "tag": "Weight Tied"
-    },
-    {
-      "id": "norm1",
-      "type": "backend",
-      "label": "RMSNorm 1",
-      "sublabel": "Pre-norm, eps=1e-5",
-      "pos": [
-        400,
-        140
-      ],
-      "size": [
-        140,
-        60
+        180,
+        70
       ]
     },
     {
       "id": "in-proj",
       "type": "backend",
-      "label": "Input Projection",
-      "sublabel": "Linear: 1024 -> 5136",
+      "label": "Norm / Projection",
+      "sublabel": "1024 \u2192 5136; x, B, C, dt",
       "pos": [
-        580,
+        290,
         140
       ],
       "size": [
-        140,
-        60
-      ],
-      "tag": "x, B, C, dt"
+        180,
+        70
+      ]
     },
     {
-      "id": "ssd-core",
+      "id": "ssd",
       "type": "backend",
-      "label": "Complex SSD Scan",
-      "sublabel": "N=64 complex64, C=64",
+      "label": "Complex SSD",
+      "sublabel": "N=64; chunk length 64",
       "pos": [
-        760,
+        550,
         140
       ],
       "size": [
-        150,
-        60
-      ],
-      "tag": "Zero Conv1d"
+        180,
+        70
+      ]
     },
     {
-      "id": "mimo-mix",
+      "id": "mimo",
       "type": "backend",
-      "label": "MIMO Head Mixer",
-      "sublabel": "Linear(1024, 1024)",
+      "label": "MIMO mixer",
+      "sublabel": "1024 \u00d7 1024; identity init",
       "pos": [
-        950,
+        810,
         140
       ],
       "size": [
-        150,
-        60
-      ],
-      "tag": "Identity Init"
-    },
-    {
-      "id": "out-proj",
-      "type": "backend",
-      "label": "Output Projection",
-      "sublabel": "1024 \u2192 1024 + residual",
-      "pos": [
-        950,
-        320
-      ],
-      "size": [
-        150,
-        60
+        180,
+        70
       ]
     },
     {
-      "id": "norm2",
+      "id": "res1",
       "type": "backend",
-      "label": "RMSNorm 2",
-      "sublabel": "Pre-norm, eps=1e-5",
+      "label": "Projection + add 1",
+      "sublabel": "h = x + out(MIMO(SSD))",
       "pos": [
-        760,
+        810,
         320
       ],
       "size": [
-        150,
-        60
+        180,
+        70
       ]
     },
     {
-      "id": "swiglu-ffn",
+      "id": "ffn",
       "type": "backend",
-      "label": "SwiGLU FFN",
-      "sublabel": "FFN 2048 + residual",
+      "label": "Norm / SwiGLU",
+      "sublabel": "2048 intermediate width",
       "pos": [
-        580,
+        550,
         320
       ],
       "size": [
-        140,
-        60
+        180,
+        70
       ]
     },
     {
-      "id": "norm-f",
+      "id": "res2",
+      "type": "backend",
+      "label": "Residual addition 2",
+      "sublabel": "h = h + FFN(norm(h))",
+      "pos": [
+        290,
+        320
+      ],
+      "size": [
+        180,
+        70
+      ]
+    },
+    {
+      "id": "norm",
       "type": "backend",
       "label": "Final RMSNorm",
-      "sublabel": "Once after the stack",
+      "sublabel": "once after all 28 blocks",
       "pos": [
-        400,
-        320
+        290,
+        500
       ],
       "size": [
-        140,
-        60
+        180,
+        70
       ]
     },
     {
-      "id": "lm-head",
+      "id": "head",
       "type": "backend",
-      "label": "LM Head",
-      "sublabel": "Linear: 1024 -> 50257",
+      "label": "Tied head / logits",
+      "sublabel": "full [B,T,50257] output",
       "pos": [
-        220,
-        320
+        550,
+        500
       ],
       "size": [
-        140,
-        60
-      ],
-      "tag": "Tied Embed"
+        180,
+        70
+      ]
     },
     {
-      "id": "loss-fn",
+      "id": "loss",
       "type": "backend",
-      "label": "Cross-Entropy",
-      "sublabel": "full logits; no chunking",
+      "label": "Training CE",
+      "sublabel": "full logits + shifted targets",
       "pos": [
-        40,
-        320
+        810,
+        500
       ],
       "size": [
-        140,
-        60
+        180,
+        70
       ]
     }
   ],
   "boundaries": [
     {
       "kind": "region",
-      "label": "28 checkpointed blocks, then one final RMSNorm",
+      "label": "Mamba3Block \u00d728 \u00b7 both residual additions repeat",
       "wraps": [
-        "norm1",
         "in-proj",
-        "ssd-core",
-        "mimo-mix",
-        "out-proj",
-        "norm2",
-        "swiglu-ffn",
-        "norm-f"
-      ]
+        "ssd",
+        "mimo",
+        "res1",
+        "ffn",
+        "res2"
+      ],
+      "pad": 24
     }
   ],
   "connections": [
     {
-      "id": "tok-to-emb",
-      "from": "tok-in",
-      "to": "embed",
-      "variant": "emphasis"
-    },
-    {
-      "id": "emb-to-norm1",
+      "id": "embed-in-proj",
       "from": "embed",
-      "to": "norm1"
-    },
-    {
-      "id": "norm1-to-inproj",
-      "from": "norm1",
       "to": "in-proj"
     },
     {
-      "id": "inproj-to-ssd",
+      "id": "in-proj-ssd",
       "from": "in-proj",
-      "to": "ssd-core",
-      "variant": "emphasis"
+      "to": "ssd"
     },
     {
-      "id": "ssd-to-mimo",
-      "from": "ssd-core",
-      "to": "mimo-mix"
+      "id": "ssd-mimo",
+      "from": "ssd",
+      "to": "mimo"
     },
     {
-      "id": "mimo-to-outproj",
-      "from": "mimo-mix",
-      "to": "out-proj",
-      "fromSide": "bottom",
-      "toSide": "top"
+      "id": "mimo-res1",
+      "from": "mimo",
+      "to": "res1"
     },
     {
-      "id": "outproj-to-norm2",
-      "from": "out-proj",
-      "to": "norm2",
-      "fromSide": "left",
-      "toSide": "right"
+      "id": "res1-ffn",
+      "from": "res1",
+      "to": "ffn"
     },
     {
-      "id": "norm2-to-ffn",
-      "from": "norm2",
-      "to": "swiglu-ffn",
-      "fromSide": "left",
-      "toSide": "right"
+      "id": "ffn-res2",
+      "from": "ffn",
+      "to": "res2"
     },
     {
-      "id": "ffn-to-normf",
-      "from": "swiglu-ffn",
-      "to": "norm-f",
-      "fromSide": "left",
-      "toSide": "right"
+      "id": "res2-norm",
+      "from": "res2",
+      "to": "norm"
     },
     {
-      "id": "normf-to-lmhead",
-      "from": "norm-f",
-      "to": "lm-head",
-      "fromSide": "left",
-      "toSide": "right"
+      "id": "norm-head",
+      "from": "norm",
+      "to": "head"
     },
     {
-      "id": "lmhead-to-loss",
-      "from": "lm-head",
-      "to": "loss-fn",
-      "variant": "emphasis",
-      "fromSide": "left",
-      "toSide": "right"
+      "id": "head-loss",
+      "from": "head",
+      "to": "loss"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "Complex SSD",
+      "title": "Complex state, not byte halving",
       "items": [
-        "A_log = softplus(dt) \u00d7 A; chunk length 64.",
-        "Within-chunk and cross-chunk contributions sum to the output.",
-        "64 complex64 entries = 128 float32 entries in bytes."
+        "64 complex64 entries = 128 float32 entries in bytes.",
+        "No attention or causal convolution; no measured speed claim."
       ]
     },
     {
       "dot": "emerald",
-      "title": "Residuals and mixing",
+      "title": "Actual output contract",
       "items": [
-        "Two residual additions per block; no causal convolution.",
-        "MIMO mixes all 1024 flattened head channels.",
-        "Identity initialization is preserved by the model initializer."
+        "Forward returns full logits; ordinary CE lives in training.",
+        "No hidden-state-only loss or incremental state-cache API."
       ]
     },
     {
-      "dot": "violet",
-      "title": "Actual output contract",
+      "dot": "slate",
+      "title": "Pinned source / configured dimensions",
       "items": [
-        "28 blocks; tied embedding/head; approximately 434M parameters.",
-        "Forward materializes [B,T,50257] logits.",
-        "Training uses ordinary cross-entropy, not chunked CE."
+        "Revision 11f8b82405aa",
+        "Config: configs/pretrain_a100_400m.yaml",
+        "Source anchors and full hashes: quality-review.md."
       ]
     }
   ]
