@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "dataflow",
   "meta": {
-    "title": "Mamba-3-Lite Data Pipeline",
+    "title": "Mamba-3-Lite \u00b7 Data",
     "output": "docs/diagrams/mamba3_dataflow.html",
     "viewBox": [
       1080,
@@ -35,7 +35,7 @@
       "sublabel": "FineWeb, Stack, Math",
       "stage": 0,
       "row": 0,
-      "tag": "8.0B tokens"
+      "tag": "8B target, not inventory"
     },
     {
       "id": "tokenizer",
@@ -44,12 +44,12 @@
       "sublabel": "Vocab: 50,257",
       "stage": 1,
       "row": 0,
-      "tag": "uint32 stream"
+      "tag": "vocab-selected dtype"
     },
     {
       "id": "shards",
       "type": "database",
-      "label": "Raw uint32 shards",
+      "label": "Raw uint16 shards",
       "sublabel": "shard_*.bin",
       "stage": 2,
       "row": 0,
@@ -58,8 +58,8 @@
     {
       "id": "mmap-ds",
       "type": "backend",
-      "label": "Tensor shard loader",
-      "sublabel": "O(log S) bisect",
+      "label": "Tensor loader",
+      "sublabel": "serialized tensors",
       "stage": 3,
       "row": 0,
       "tag": "torch.load mmap"
@@ -87,7 +87,7 @@
       "from": "tokenizer",
       "to": "shards",
       "label": "packed tokens",
-      "classification": "uint32",
+      "classification": "GPT-2: uint16",
       "variant": "emphasis",
       "route": "straight"
     },
@@ -111,28 +111,29 @@
   "cards": [
     {
       "dot": "cyan",
-      "title": "Canonical seven-source recipe",
+      "title": "Pinned source / declared recipe",
       "items": [
-        "FineWeb-Edu 40% \u00b7 DCLM 15% \u00b7 Python 15% \u00b7 Jupyter 5%.",
-        "OpenMath 10% \u00b7 arXiv 10% \u00b7 Cosmopedia 5%; target 8B tokens."
+        "Revision 11f8b82405aa",
+        "Config: configs/pretrain_a100_400m.yaml",
+        "Seven-source weights are a recipe, not enforced output quotas."
       ]
     },
     {
       "dot": "rose",
       "title": "A real integration gap",
       "items": [
-        "Preparation delegates to shared_data; output is raw uint32.",
-        "PretrainDataset calls torch.load(weights_only=True, mmap=True).",
-        "A .bin suffix does not make these formats interchangeable."
+        "GPT-2 packing selects uint16; actual manifest is authoritative.",
+        "torch.load mmap requires serialized tensors, not raw bytes.",
+        "The preparation-to-training conversion bridge is absent."
       ]
     },
     {
       "dot": "violet",
       "title": "Actual batching",
       "items": [
-        "2049-token windows, stride 2048; targets shift by one.",
-        "torch.cat joins shard pieces; conversion and batches allocate.",
-        "DataLoader: num_workers=0, shuffle=False, pin_memory=False."
+        "Same-shard windows are views; batch collation allocates.",
+        "Cross-shard: tolist \u2192 list.extend \u2192 new torch.long tensor.",
+        "2049-token windows; stride 2048; loader unshuffled / unpinned."
       ]
     }
   ]

@@ -6,12 +6,12 @@
   "input": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_dataflow.json",
   "output": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_dataflow.html",
   "specification": {
-    "sha256": "f569a58fe464aaea9393a737502dd09b3acbdf0512fa13f76e420fb3f95ad8ef",
-    "bytes": 3158
+    "sha256": "80cfd762263885066cced5c0e56dc20bbe7b193382025751689b2cfe1e5f6c41",
+    "bytes": 3188
   },
   "artifact": {
-    "sha256": "b021ba09c079fce27ee989e517f670c641dfcb6de800fa14b6fd4021f033953d",
-    "bytes": 707123
+    "sha256": "49d09a67da86750b10909c2feb15eac3143eb79bf937ffc8393b5ee0646794ce",
+    "bytes": 707196
   },
   "validation": {
     "checksPassed": 9,

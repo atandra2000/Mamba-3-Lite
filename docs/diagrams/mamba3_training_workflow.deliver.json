@@ -6,12 +6,12 @@
   "input": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_training_workflow.json",
   "output": "/Users/atandrabharati/Desktop/CoreProjects/LLM/Mamba-3-Lite/docs/diagrams/mamba3_training_workflow.html",
   "specification": {
-    "sha256": "bf4b5360f768746d2809ff2ecda4ef186e0be36cebe2f5195cbf155e2e45f5d8",
-    "bytes": 5702
+    "sha256": "5d227b4d9b243748119d10c6ccf61ebd7e609e836bcd1f2598fa3b5f76a403a9",
+    "bytes": 6133
   },
   "artifact": {
-    "sha256": "5298e060bbd72c70e269b7a9f4a7252544709cc29e7516212f546f6a21b21870",
-    "bytes": 717891
+    "sha256": "3024da49219d55a378e28b0ada42f588e37f8420327796e3cc16daf90f023d27",
+    "bytes": 717141
   },
   "validation": {
     "checksPassed": 9,

@@ -1,17 +1,18 @@
 {
-  "schemaVersion": 1,
-  "scope": "Mamba Archify visual documentation; no training-runtime changes",
+  "schemaVersion": 2,
+  "scope": "Mamba-3-Lite diagram repairs; training runtime unchanged",
+  "revision": "11f8b82405aa",
   "diagrams": [
     {
       "type": "architecture",
       "output": "mamba3_architecture.html",
       "specification": {
-        "sha256": "7c88afd5cc288dcfb0b7f1887290eff1f4cf450fb90ca4a6680fabf6adfda161",
-        "bytes": 6951
+        "sha256": "9ba6de7b7052004a675437a97d5591df4f920f7b3a7eba4293c350e2d59a028b",
+        "bytes": 4349
       },
       "artifact": {
-        "sha256": "c185109e8b64821e6b82ff79137cca28a267c85834525b1d2354606a0c098e98",
-        "bytes": 715040
+        "sha256": "4492a773dc1f422b018ed374bae88ae1c41c6075b15f2c57e1bb5508140c644e",
+        "bytes": 710117
       },
       "validation": {
         "checksPassed": 9,
@@ -23,20 +24,19 @@
       },
       "browser_evidence": "passed",
       "browser_receipt": "mamba3_architecture.visual-check.json",
-      "visual_review": "passed",
-      "visual_review_scope": "Default READ/still screenshots at 1440x900 and 2048x1320, light and dark: node fit, routes, cards, layout. Export and focus panels not manually exercised.",
+      "visual_review": "skipped (image reader unavailable)",
       "correction_rounds": 1
     },
     {
       "type": "dataflow",
       "output": "mamba3_dataflow.html",
       "specification": {
-        "sha256": "f569a58fe464aaea9393a737502dd09b3acbdf0512fa13f76e420fb3f95ad8ef",
-        "bytes": 3158
+        "sha256": "80cfd762263885066cced5c0e56dc20bbe7b193382025751689b2cfe1e5f6c41",
+        "bytes": 3188
       },
       "artifact": {
-        "sha256": "b021ba09c079fce27ee989e517f670c641dfcb6de800fa14b6fd4021f033953d",
-        "bytes": 707123
+        "sha256": "49d09a67da86750b10909c2feb15eac3143eb79bf937ffc8393b5ee0646794ce",
+        "bytes": 707196
       },
       "validation": {
         "checksPassed": 9,
@@ -48,20 +48,19 @@
       },
       "browser_evidence": "passed",
       "browser_receipt": "mamba3_dataflow.visual-check.json",
-      "visual_review": "passed",
-      "visual_review_scope": "Default READ/still screenshots at 1440x900 and 2048x1320, light and dark: node fit, routes, cards, layout. Export and focus panels not manually exercised.",
+      "visual_review": "skipped (image reader unavailable)",
       "correction_rounds": 1
     },
     {
       "type": "workflow",
       "output": "mamba3_training_workflow.html",
       "specification": {
-        "sha256": "bf4b5360f768746d2809ff2ecda4ef186e0be36cebe2f5195cbf155e2e45f5d8",
-        "bytes": 5702
+        "sha256": "5d227b4d9b243748119d10c6ccf61ebd7e609e836bcd1f2598fa3b5f76a403a9",
+        "bytes": 6133
       },
       "artifact": {
-        "sha256": "5298e060bbd72c70e269b7a9f4a7252544709cc29e7516212f546f6a21b21870",
-        "bytes": 717891
+        "sha256": "3024da49219d55a378e28b0ada42f588e37f8420327796e3cc16daf90f023d27",
+        "bytes": 717141
       },
       "validation": {
         "checksPassed": 9,
@@ -73,16 +72,15 @@
       },
       "browser_evidence": "passed",
       "browser_receipt": "mamba3_training_workflow.visual-check.json",
-      "visual_review": "passed",
-      "visual_review_scope": "Default READ/still screenshots at 1440x900 and 2048x1320, light and dark: node fit, routes, cards, layout. Export and focus panels not manually exercised.",
-      "correction_rounds": 1
+      "visual_review": "skipped (image reader unavailable)",
+      "correction_rounds": 2
     }
   ],
   "guide": {
     "status": "pass",
     "artifact": {
-      "sha256": "054912c965cd91a957ae3ddbdd1048bc90d41f045bef7f78c880565791faa387",
-      "bytes": 22815
+      "sha256": "747a76195f91cac8c7a8b554fd92e733ca9620a7238ef0c2f412281424d79230",
+      "bytes": 23537
     },
     "offline": true,
     "viewports": [
@@ -95,7 +93,7 @@
         "scrollWidth": 390
       }
     ],
-    "links": 26,
+    "links": 27,
     "recurrenceCases": [
       {
         "a": -0.3,
@@ -132,20 +130,24 @@
     ],
     "keyboard": "pass",
     "runtimeErrors": [],
-    "visual_review": "passed",
-    "check_command": "node docs/diagrams/check-guide.mjs docs/diagrams /tmp"
+    "visual_review": "skipped (image reader unavailable)"
   },
   "cpu_tests": {
     "passed": 32,
     "skipped": 5,
-    "skips": "GPU/Triton hardware tests"
-  },
-  "vault_sync": {
-    "status": "dry-run only",
-    "reason": "Workspace script would copy 186 Markdown files across unrelated projects; no scoped option."
+    "skips": "GPU/Triton hardware tests",
+    "interpreter": "Python 3.9.6 / PyTorch 2.8.0"
   },
   "documentation_checks": {
-    "exit_code": 0,
-    "output": "[doc-refs] scanned 19 docs, 433 anchors\n[doc-refs] resolution: PASS\n[doc-refs] coverage: PASS\n[doc-refs] line anchors: PASS\n[doc-refs] triton citations: PASS\n[doc-refs] links: PASS\n"
+    "doc_refs": "20 docs, 436 anchors; resolution, coverage, line anchors, triton citations and links PASS",
+    "build": "scripts/build_docs_html.py exit 0"
+  },
+  "vault_sync": {
+    "status": "scoped run completed via workspace script"
+  },
+  "limits": {
+    "perceptual_review": "unavailable: provider/model image-input limitation",
+    "px_target": "proposed 11/12px standard not met",
+    "gpu": "not measured"
   }
 }

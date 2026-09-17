@@ -73,7 +73,7 @@
       "routesOverSuggestedBends": 0,
       "maxStretch": 1,
       "routesOverSuggestedStretch": 0,
-      "minSegmentPx": 40,
+      "minSegmentPx": 80,
       "minInteriorSegmentPx": null,
       "shortSegmentCount": 0,
       "shortEndpointSegmentCount": 0,
