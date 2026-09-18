@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+
+    - name: Run test suite
+      run: |
+        # CPU gate — skip gpu/slow markers
+        python -m pytest -m "not gpu and not slow" -v --tb=short
+
+    - name: Triton availability check
+      run: |
+        python -c "
+import sys
+try:
+    import mamba_ssm
+    print('mamba_ssm available')
+except ImportError:
+    print('mamba_ssm not installed (SSD uses pure-PyTorch fallback)')
+        "
