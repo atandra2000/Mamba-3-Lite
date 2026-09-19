@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [ main ]
   push:
@@ -33,12 +34,4 @@ jobs:
         python -m pytest -m "not gpu and not slow" -v --tb=short
 
     - name: Triton availability check
-      run: |
-        python -c "
-import sys
-try:
-    import mamba_ssm
-    print('mamba_ssm available')
-except ImportError:
-    print('mamba_ssm not installed (SSD uses pure-PyTorch fallback)')
-        "
+      run: python -c "import importlib.util; print('mamba_ssm available' if importlib.util.find_spec('mamba_ssm') else 'mamba_ssm not installed (SSD uses pure-PyTorch fallback)')"
