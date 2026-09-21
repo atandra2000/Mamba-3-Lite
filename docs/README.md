@@ -1,6 +1,6 @@
 # Mamba-3-Lite — Documentation Index
 
-> The full documentation tree for the ~434M-param, pure-PyTorch Mamba-3 reproduction with complex-valued SSD state spaces. Everything is **symbol-anchored to the code** and machine-checked by `tests/test_doc_refs.py` (`--coverage --links` in CI).
+> The full documentation tree for the ~434M-param, pure-PyTorch Mamba-3 reproduction with complex-valued SSD state spaces. Everything is **symbol-anchored to the code** and machine-checked by `tests/test_doc_refs.py` (`--coverage --links` in CI). The docs audit trail — verification runs, findings, gate dialect — lives in [`AUDIT.md`](AUDIT.md).
 
 ## Visual guide
 
@@ -10,6 +10,7 @@
 
 | You want to… | Start here |
 |---|---|
+| A structured tour by experience level | [`guides/learning-paths.md`](guides/learning-paths.md) |
 | Understand the SSD math from zero | `concepts/state-space-foundations.md` → `concepts/ssd-theory.md` |
 | Understand one model component | `concepts/mimo.md`, `concepts/block-and-stability.md` |
 | Look up a function/class contract | `references/` (consolidated API docs, below) |
@@ -44,6 +45,14 @@
 | [`tuning.md`](guides/tuning.md) | chunk_size, lr, batch geometry, compile, Triton dispatch — measure, don't guess |
 | [`extending.md`](guides/extending.md) | Add an SSM variant; add a sanctioned Triton kernel |
 | [`pretrain-cli.md`](guides/pretrain-cli.md) | `training/pretrain.py:TrainingConfig`, CLI flags, `main()`, optimizer/scheduler wiring |
+| [`learning-paths.md`](guides/learning-paths.md) | Three tiered routes (beginner / intermediate / expert) with landmark checks |
+| [`glossary.md`](guides/glossary.md) | Notation, canonical numbers (param counts, token budget), terms by subsystem |
+
+## Audit trail
+
+| Doc | Content |
+|---|---|
+| [`AUDIT.md`](AUDIT.md) | Verification runs (doc gate + pytest, measured), findings F1–F6, gate dialect notes, executed modification plan |
 
 ## Training pipeline
 
