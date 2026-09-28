@@ -2,6 +2,21 @@
 
 > The full documentation tree for the ~434M-param, pure-PyTorch Mamba-3 reproduction with complex-valued SSD state spaces. Everything is **symbol-anchored to the code** and machine-checked by `tests/test_doc_refs.py` (`--coverage --links` in CI). The docs audit trail — verification runs, findings, gate dialect — lives in [`AUDIT.md`](AUDIT.md).
 
+## Corpus size
+
+Measured with `wc -w`, 2026-09-21 (the doc gate scans these 20 files plus root `README.md`, `AGENTS.md`, `SKILLS.md` = 23 docs).
+
+| Track | Files | Words |
+|---|---|---|
+| [`concepts/`](#concepts-concepts--from-scratch-concept-building) | 4 | 25,321 |
+| [`references/`](#references-references--symbol-anchored-api-docs) | 4 | 25,764 |
+| [`guides/`](#guides-guides--task-oriented) | 8 | 14,329 |
+| [`training.md`](training.md) | 1 | 2,266 |
+| [`AUDIT.md`](AUDIT.md) | 1 | 1,012 |
+| [`diagrams/quality-review.md`](diagrams/quality-review.md) | 1 | 324 |
+| this nav map | 1 | 809 |
+| **docs/ total** | **20** | **69,825** |
+
 ## Visual guide
 
 [Interactive architecture, data, training and optimization guide](diagrams/mamba3_interactive_guide.html) — three source-corrected Archify maps, an interactive complex-state experiment, and explicit runtime limitations. See [source notes and verification](guides/visual-guide.md).

@@ -59,3 +59,6 @@ docs_html/
 
 # Tooling artifacts
 .zero/
+
+# Local Claude Code session artifacts
+.claude/

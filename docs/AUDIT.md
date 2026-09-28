@@ -19,6 +19,20 @@ python3 -m pytest tests/ --tb=no -q
 - **Stale-count sweep:** grepped README.md and docs/ for test-count claims —
   README.md:162 and README.md:296 both say "37 tests, 32 pass on CPU, 5 GPU-gated",
   which matches the measured run. No stale counts found.
+- **2026-09-21 — Wave-1 concepts-cluster closeout.** The five planned special-work
+  concepts (complex-SSD recurrence, why N halves in ℂ, MIMO mixing, chunk_size
+  trade-offs, no-causal-conv) were verified already covered on disk; no new docs
+  were written (no duplication): the complex-SSD recurrence and the N-halving
+  packing argument in [`concepts/ssd-theory.md`](concepts/ssd-theory.md) (all three
+  parts), MIMO mixing in [`concepts/mimo.md`](concepts/mimo.md), chunk_size
+  trade-offs in [`concepts/ssd-theory.md`](concepts/ssd-theory.md) plus
+  [`guides/tuning.md`](guides/tuning.md), and no-causal-conv in
+  [`concepts/block-and-stability.md`](concepts/block-and-stability.md) (§5.1).
+  Doc gate re-run after adding the corpus-size table to [`README.md`](README.md):
+  23 docs, 463 anchors — resolution PASS, coverage PASS (9 modules), line anchors
+  PASS, Triton citations PASS, links PASS. Test suite: 32 passed, 5 skipped
+  (GPU-gated), 2.05 s. Corpus measured `wc -w` 2026-09-21: 69,825 words across
+  20 docs/ files (per-track table now in the nav map).
 
 ## Findings
 
