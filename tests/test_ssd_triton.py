@@ -146,8 +146,8 @@ class TestPerChunkSsdDispatchWiring:
 
     def test_explicit_pytorch_dispatch_runs_production_path(self):
         cfg = ModelConfig(
-            vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=8,
-            state_dim=4, chunk_size=4, ffn_dim=64, max_seq_len=16,
+            vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=16,
+            state_dim=16, chunk_size=16, ffn_dim=64, max_seq_len=32,
             weight_tying=True, ssd_dispatch="pytorch",
         )
         m = Mamba3Transformer(cfg)
@@ -160,8 +160,8 @@ class TestPerChunkSsdDispatchWiring:
 
     def test_explicit_triton_dispatch_falls_back_cleanly_on_cpu(self):
         cfg = ModelConfig(
-            vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=8,
-            state_dim=4, chunk_size=4, ffn_dim=64, max_seq_len=16,
+            vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=16,
+            state_dim=16, chunk_size=16, ffn_dim=64, max_seq_len=32,
             weight_tying=True, ssd_dispatch="triton",
         )
         m = Mamba3Transformer(cfg)
@@ -181,8 +181,8 @@ class TestPerChunkSsdDispatchWiring:
 
     def test_triton_fallback_warning_is_one_shot_per_instance(self):
         cfg = ModelConfig(
-            vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=8,
-            state_dim=4, chunk_size=4, ffn_dim=64, max_seq_len=16,
+            vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=16,
+            state_dim=16, chunk_size=16, ffn_dim=64, max_seq_len=32,
             weight_tying=True, ssd_dispatch="triton",
         )
         m = Mamba3Transformer(cfg)
@@ -196,8 +196,8 @@ class TestPerChunkSsdDispatchWiring:
 
     def test_triton_path_output_matches_pytorch_path(self):
         base_cfg = dict(
-            vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=8,
-            state_dim=4, chunk_size=4, ffn_dim=64, max_seq_len=16,
+            vocab_size=64, d_model=32, n_layers=1, n_heads=2, head_dim=16,
+            state_dim=16, chunk_size=16, ffn_dim=64, max_seq_len=32,
             weight_tying=True,
         )
         torch.manual_seed(42)

@@ -14,6 +14,23 @@ def _discretise(dt: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
     return torch.exp(F.softplus(dt) * A)
 
 
+# exp overflows to inf above ~88 in fp32 (complex64 = 2x fp32). Every causal
+# decay exponent is <= 0, so clamping the positive tail at 80 cannot change a
+# retained value; it only keeps the discarded region finite so `where` masking
+# and its backward pass stay NaN-free. Do not tighten toward 0: a finite but
+# too-small cap would change the retained decay.
+_EXP_EXPONENT_CAP = 80.0
+
+
+def _clamp_exp_exponent(z: torch.Tensor) -> torch.Tensor:
+    """Clamp an exponent's real part so `exp` never overflows.
+
+    The imaginary part is a phase and must pass through unclamped.
+    """
+    real = torch.clamp(z.real, max=_EXP_EXPONENT_CAP)
+    return torch.complex(real, z.imag) if z.is_complex() else real
+
+
 def ssd_naive_complex(
     x: torch.Tensor, A: torch.Tensor, B_t: torch.Tensor, C_t: torch.Tensor, dt: torch.Tensor,
 ) -> torch.Tensor:
@@ -48,8 +65,12 @@ def per_chunk_ssd_pytorch(
     causal = torch.tril(torch.ones(C, C, device=Bc.device, dtype=torch.bool))
     A_log_h = A_log.permute(0, 1, 3, 2)
     A_cs = A_log_h.cumsum(dim=-1)
-    seg = A_cs.unsqueeze(-1) - A_cs.unsqueeze(-2)
-    L = torch.exp(seg) * causal
+    # Clamp the exponent before exp. The discarded non-causal region has a
+    # large positive exponent whose exp overflows to inf; `inf * 0` in the mask
+    # forward and the `exp` derivative backward both yield NaN. exp(z) for
+    # z>88 already saturates above every causal value, so clamping is exact here.
+    seg = _clamp_exp_exponent(A_cs.unsqueeze(-1) - A_cs.unsqueeze(-2))
+    L = torch.where(causal, torch.exp(seg), torch.zeros((), dtype=seg.dtype, device=seg.device))
     Y_diag = torch.einsum("bclhn,bcshn,bchls,bcshp->bclhp", Cc, Bc, L, Xc)
     state = torch.einsum("bclhn,bclh,bclhp->bchpn", Bc, decay_states, Xc)
     return Y_diag, state
@@ -102,17 +123,24 @@ def ssd_complex_chunkwise(
     # without an explicit sequential loop.
     cd_shift = torch.cat([torch.zeros_like(cd_cumsum[..., :1]), cd_cumsum[..., :-1]], dim=-1)
     # The strict lower triangle excludes the current chunk: its local effect is
-    # already represented by Y_diag.
-    cd_seg = cd_shift.unsqueeze(-1) - cd_cumsum.unsqueeze(-2)
-    decay_chunk = torch.exp(cd_seg) * torch.tril(
+    # already represented by Y_diag. Mask with `where` — the causal (z<=c)
+    # exponent reaches +1460 and `exp` overflows, so `exp * mask` yields
+    # inf * 0 = NaN.
+    cd_seg = _clamp_exp_exponent(cd_shift.unsqueeze(-1) - cd_cumsum.unsqueeze(-2))
+    causal_chunks = torch.tril(
         torch.ones(n_chunks, n_chunks, device=x.device, dtype=torch.bool), diagonal=-1,
     )
+    decay_chunk = torch.where(
+        causal_chunks, torch.exp(cd_seg),
+        torch.zeros((), dtype=cd_seg.dtype, device=cd_seg.device),
+    )
 
-    states = torch.einsum("bhzc,bchpn->bzhpn", decay_chunk, states)
+    states = torch.einsum("bhzc,bchpn->bzhpn", decay_chunk.to(states.dtype), states)
     # There is no external initial state: the scan starts at zero, so only
     # completed earlier chunks contribute to this cross-chunk term.
 
-    Y_off = torch.einsum("bclhn,bchpn,bclh->bclhp", Cc, states, torch.exp(A_cumsum))
+    Y_off = torch.einsum("bclhn,bchpn,bclh->bclhp", Cc.to(states.dtype), states,
+                         torch.exp(A_cumsum).to(states.dtype))
 
     Y = Y_diag + Y_off
     Y = Y.real
