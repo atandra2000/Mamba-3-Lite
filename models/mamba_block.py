@@ -8,6 +8,9 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+# torch.utils.checkpoint is a submodule; `import torch` alone does not load
+# it, so `torch.utils.checkpoint.checkpoint` raises AttributeError.
+import torch.utils.checkpoint
 
 from .ssd_complex import ssd_complex_chunkwise
 from .mimo import MIMO

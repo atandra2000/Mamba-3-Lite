@@ -20,6 +20,21 @@ sys.path.append(str(Path(__file__).parent.parent))
 from models.transformer import Mamba3Transformer, ModelConfig
 from utils.checkpoint import CheckpointManager
 from utils.logging import TrainingLogger
+# --- bakeoff exposure accounting (tools/bakeoff) ---
+import sys as _sys
+from pathlib import Path as _Path
+_BAKEOFF = _Path(__file__).resolve().parents[2] / "tools" / "bakeoff"
+if _BAKEOFF.is_dir() and str(_BAKEOFF) not in _sys.path:
+    _sys.path.insert(0, str(_BAKEOFF))
+try:
+    from exposure_hook import load_exposure as _load_exposure
+    from exposure_hook import bind as _bind_exp, tick as _tick_exp
+except Exception:
+    _load_exposure = None
+    _bind_exp = None
+    def _tick_exp(*a, **k):
+        pass
+# --- end bakeoff import ---
 
 _DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -76,10 +91,31 @@ class PretrainDataset(Dataset):
             return
         self._init_sharded(data_path) if os.path.isdir(data_path) else self._init_single(data_path)
 
+    @staticmethod
+    def _read_tokens(path, dtype: str = "uint32") -> torch.Tensor:
+        """Read one packed shard as a zero-copy token tensor.
+
+        Two on-disk layouts are in play. ``shared_data.pack_shards`` writes
+        raw little-endian token ids; some test fixtures are still written with
+        ``torch.save``. Detect which one it is: a torch zip archive starts with
+        ``PK``, raw token bytes do not. ``torch.load(..., mmap=True)`` rejects
+        the raw layout outright.
+
+        The packed dtype comes from the family manifest — ``tok_gpt2`` is
+        uint16 (vocab 50k), ``tok_llama3``/``tok_deepseek`` are uint32.
+        Reading a uint16 shard as uint32 merges two tokens into one garbage id.
+        """
+        import numpy as np
+        with open(str(path), "rb") as fh:
+            magic = fh.read(2)
+        if magic == b"PK":
+            return torch.load(str(path), weights_only=True, map_location="cpu", mmap=True)
+        return torch.from_numpy(np.memmap(str(path), dtype=np.dtype(dtype), mode="r"))
+
     def _init_single(self, data_path: str) -> None:
         """Load one flat token tensor and reserve one token per window as target."""
         self.layout = "single"
-        self.data = torch.load(data_path, weights_only=True)
+        self.data = self._read_tokens(data_path)
         self._n_samples = (len(self.data) - 1) // self.max_seq_len
 
     def _get_window_single(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -94,7 +130,12 @@ class PretrainDataset(Dataset):
         if not shard_paths:
             raise FileNotFoundError(f"No `shard_*.bin` files in {data_dir}")
         self.layout = "sharded"
-        self.shards = [torch.load(p, weights_only=True, mmap=True) for p in shard_paths]
+        dtype = "uint32"
+        man = Path(data_dir) / "manifest.json"
+        if man.is_file():
+            import json
+            dtype = json.loads(man.read_text()).get("dtype", "uint32")
+        self.shards = [self._read_tokens(p, dtype) for p in shard_paths]
         self.shard_sizes = [s.numel() for s in self.shards]
         self.shard_offsets = [0] + [sum(self.shard_sizes[:i+1]) for i in range(len(self.shard_sizes)-1)]
         self._total_tokens = sum(self.shard_sizes)
@@ -130,7 +171,10 @@ class PretrainDataset(Dataset):
         """Return model inputs and one-token-shifted language-model targets."""
         if self.layout == "dummy":
             return torch.randint(0, self.vocab_size, (self.max_seq_len,)), torch.randint(0, self.vocab_size, (self.max_seq_len,))
-        return self._get_window_single(idx) if self.layout == "single" else self._get_window_sharded(idx)
+        x, y = (self._get_window_single(idx) if self.layout == "single"
+                else self._get_window_sharded(idx))
+        # Packed shards are uint32; embedding indices must be Long or Int.
+        return x.long(), y.long()
 
 
 def train_step(
@@ -167,6 +211,7 @@ def train_step(
         scheduler.step()
         optimizer.zero_grad(set_to_none=True)
         opt_steps += 1
+        _tick_exp()   # bakeoff exposure: one complete optimizer step
 
     return {"loss": ce_loss_val}, opt_steps
 
@@ -182,6 +227,23 @@ def _enforce_triton_env_var(model_config: dict, log) -> None:
             "forcing ssd_dispatch='pytorch' for this run."
         )
         model_config["ssd_dispatch"] = "pytorch"
+
+
+def build_schedulers(optimizer: torch.optim.Optimizer, config: TrainingConfig):
+    """Warmup-then-cosine LR pair, stepped once per optimizer step.
+
+    The scheduler advances once per optimizer step (see train_step), but
+    max_steps counts micro-batches. Using max_steps here set the cosine
+    horizon to gradient_accumulation_steps x too long, so the decay never
+    completed. Mirror DeepSeek-v3-Lite and convert first.
+    """
+    from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
+    opt_steps = max(1, config.max_steps // config.gradient_accumulation_steps)
+    warm = max(1, min(config.warmup_steps, opt_steps - 1))
+    warmup = LinearLR(optimizer, start_factor=0.01, end_factor=1.0, total_iters=warm)
+    cosine = CosineAnnealingLR(optimizer, T_max=opt_steps - warm,
+                               eta_min=config.lr * config.min_lr_ratio)
+    return SequentialLR(optimizer, schedulers=[warmup, cosine], milestones=[warm])
 
 
 class Pretrainer:
@@ -235,10 +297,7 @@ class Pretrainer:
             {"params": no_decay_params, "weight_decay": 0.0},
         ], lr=config.lr, betas=(config.beta1, config.beta2), fused=False)
 
-        from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
-        warmup = LinearLR(self.optimizer, start_factor=0.01, end_factor=1.0, total_iters=config.warmup_steps)
-        cosine = CosineAnnealingLR(self.optimizer, T_max=config.max_steps - config.warmup_steps, eta_min=config.lr * config.min_lr_ratio)
-        self.scheduler = SequentialLR(self.optimizer, schedulers=[warmup, cosine], milestones=[config.warmup_steps])
+        self.scheduler = build_schedulers(self.optimizer, config)
 
     @staticmethod
     def _log(msg: str) -> None:
@@ -295,6 +354,19 @@ class Pretrainer:
 
         self._log(f"Training from step {global_step} to {self.config.max_steps}")
         self.raw_model.train()
+        # bakeoff exposure. Seeded from the checkpoint so a resumed run does
+        # not restart the token counter at zero.
+        if _load_exposure is not None:
+            _bind_exp(_load_exposure(__file__,
+                tokens_per_step=self.config.batch_size * self.config.max_seq_len
+                                * self.config.gradient_accumulation_steps,
+                micro_batch=self.config.batch_size, seq_len=self.config.max_seq_len,
+                grad_accum=self.config.gradient_accumulation_steps, tokenizer="gpt2",
+                run_dir=str(self.config.checkpoint_dir) + "/exposure",
+                start_opt_steps=self._opt_steps,
+                start_tokens_seen=self._opt_steps * self.config.batch_size
+                                  * self.config.max_seq_len
+                                  * self.config.gradient_accumulation_steps))
         nan_guard_streak = 0
         while global_step < self.config.max_steps:
             for tokens, targets in tqdm(loader):

@@ -87,6 +87,10 @@ if HAS_TRITON:
         seg_re = a_re_cs[:, None] - a_re_cs[None, :]
         seg_im = a_im_cs[:, None] - a_im_cs[None, :]
         causal = (c_off[:, None] >= c_off[None, :])
+        # Clamp the real exponent at 80 (fp32 exp overflows above ~88). The
+        # masked non-causal region has a large positive exponent; keeping it
+        # finite keeps tl.exp finite so the discarded branch is an honest 0.
+        seg_re = tl.minimum(seg_re, 80.0)
         L_re = tl.where(causal, tl.exp(seg_re) * tl.cos(seg_im), 0.0)
         L_im = tl.where(causal, tl.exp(seg_re) * tl.sin(seg_im), 0.0)
 
