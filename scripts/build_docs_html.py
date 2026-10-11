@@ -5,9 +5,10 @@ Converts project markdown files into a responsive, beautifully-styled HTML docum
 with full LaTeX math (KaTeX) and syntax highlighting support.
 Output directory: docs_html/ (ignored by git).
 
-Design system: the "dark bench notebook" — espresso-graphite paper, warm-bone
-ink, terracotta + olive marks, one mono voice. Shares its lineage with the
-sibling LLaMA/DeepSeek/Mamba-3 Lite portals. See `assets/style.css`.
+Design system: the "printed reader" — cool white paper, blue-black ink, one
+ink-blue accent, Literata for prose and IBM Plex Mono for code and measured
+values. Shares its lineage with the sibling LLaMA-3-Lite portal. See
+`assets/style.css`.
 """
 import os
 import re
@@ -21,47 +22,95 @@ from pathlib import Path
 WORKSPACE_DIR = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = WORKSPACE_DIR / "docs_html"
 
+# The docs site is published from this branch (GitHub Pages + CI). Asset and
+# blob links must resolve against it even when built from a worktree.
+DEFAULT_PUBLISH_BRANCH = "main"
+
+# The book, in reading order. Each entry is one chapter:
+#   (relative_path, part, chapter_title, card_blurb)
+# Order matters: it is the reading order for the sidebar, the index page and
+# the previous/next links at the foot of every chapter.
 DOC_FILES = [
-    # (relative_path_from_root, category, display_title)
-    ("README.md", "Core", "Project Overview (README)"),
-    ("AGENTS.md", "Core", "AGENTS & System Architecture"),
-    ("SKILLS.md", "Core", "Skills Reference"),
-    ("docs/README.md", "Core", "Documentation Index"),
-    ("docs/training.md", "Core", "Training, Memory Stack & Data Pipeline"),
+    # Part I — Foundations
+    ("README.md", "Part I: Foundations", "Overview",
+     "The project in one page: a ~434M-parameter Mamba-3 reproduction, "
+     "complex-valued SSD state spaces, and how to run it."),
+    ("docs/README.md", "Part I: Foundations", "How to read this book",
+     "What each chapter covers, where to start, and the map from source file "
+     "to chapter."),
+    ("docs/concepts/state-space-foundations.md", "Part I: Foundations",
+     "SSD foundations",
+     "From RNNs to SSMs: the linear recurrence, ZOH discretization, and the "
+     "S4 → Mamba-3 arc."),
+    ("docs/concepts/ssd-theory.md", "Part I: Foundations",
+     "SSD theory",
+     "State-space duality, complex states (N-halving), and the chunkwise "
+     "algorithm einsum by einsum."),
+    ("docs/concepts/mimo.md", "Part I: Foundations", "MIMO head mixing",
+     "SISO → MIMO fully-connected mixer across SSM heads — why, the math, "
+     "identity init."),
+    ("docs/concepts/block-and-stability.md", "Part I: Foundations",
+     "Block anatomy and stability",
+     "RMSNorm → SSD → MIMO → SwiGLU wiring, every dtype and precision "
+     "choice, and the scaling numbers."),
 
-    # Concepts
-    ("docs/concepts/state-space-foundations.md", "Concepts", "SSD Foundations — From RNNs to SSMs"),
-    ("docs/concepts/ssd-theory.md", "Concepts", "SSD Theory — Complex States & the Chunkwise Algorithm"),
-    ("docs/concepts/mimo.md", "Concepts", "MIMO Head Mixing — cross-head mixer"),
-    ("docs/concepts/block-and-stability.md", "Concepts", "Block Anatomy, Numerical Stability & Scaling"),
+    # Part II — The data
+    ("docs/training.md", "Part II: The data", "The data pipeline",
+     "Corpus mix, shard format, PretrainDataset layouts, and the data path "
+     "end to end."),
+    ("docs/guides/quickstart.md", "Part II: The data", "Quickstart",
+     "From zero to a running training loop — install, verify the math, full "
+     "run, resume."),
 
-    # Guides
-    ("docs/guides/quickstart.md", "Guides", "Quickstart — From Zero to a Running Loop"),
-    ("docs/guides/pretrain-cli.md", "Guides", "Pretrain CLI — flags & the training loop"),
-    ("docs/guides/training-runbook.md", "Guides", "A100 Training Runbook — launch, monitor, recover"),
-    ("docs/guides/tuning.md", "Guides", "Tuning Guide — measure, don't guess"),
-    ("docs/guides/extending.md", "Guides", "Extending — SSM variants & Triton kernels"),
+    # Part III — The training run
+    ("docs/guides/pretrain-cli.md", "Part III: The training run",
+     "The pretrain CLI",
+     "Every training/pretrain.py:TrainingConfig flag and the optimizer and "
+     "scheduler wiring."),
+    ("docs/guides/training-runbook.md", "Part III: The training run",
+     "The A100 runbook",
+     "Launch, monitor, NaN recovery, and resume for a production pre-training "
+     "run."),
+    ("docs/guides/tuning.md", "Part III: The training run", "Tuning",
+     "chunk_size, lr, batch geometry, compile, Triton dispatch — measure, "
+     "don't guess."),
+    ("docs/guides/extending.md", "Part III: The training run", "Extending",
+     "Add an SSM variant or a sanctioned Triton kernel with the test and doc "
+     "contract."),
 
-    # References
-    ("docs/references/config-reference.md", "References", "Config Reference — ModelConfig & the YAML"),
-    ("docs/references/ssd-reference.md", "References", "SSD Reference — complex scan API & kernel contract"),
-    ("docs/references/model-reference.md", "References", "Model Reference — Transformer, Block, MIMO"),
-    ("docs/references/training-reference.md", "References", "Training Reference — dataset, checkpoint, logging"),
+    # Part IV — Reference
+    ("docs/references/config-reference.md", "Part IV: Reference",
+     "Config reference",
+     "ModelConfig fields, the annotated YAML, and the 16.78B-vs-8.0B token "
+     "arithmetic."),
+    ("docs/references/ssd-reference.md", "Part IV: Reference",
+     "SSD reference",
+     "The complex scan API (ssd_complex_chunkwise, ssd_naive_complex) and the "
+     "kernel contract."),
+    ("docs/references/model-reference.md", "Part IV: Reference",
+     "Model reference",
+     "Mamba3Transformer, Mamba3Block + dispatch, and MIMO — shapes and "
+     "wiring."),
+    ("docs/references/training-reference.md", "Part IV: Reference",
+     "Training reference",
+     "PretrainDataset, CheckpointManager, TrainingLogger, and the data "
+     "pipeline shim."),
 ]
 
-# Premium-polish assets: secondary mono font, boot overlay, and a shared
-# portal.js that holds the hero, pass-diagram, sidebar, copy/expand, and
-# TOC scrollspy logic. All pages reference the same shell.
+PUBLISHED_MD = {rel for rel, *_ in DOC_FILES}
+
+# Reading face for prose, mono for code and measured values.
 FONT_LINK = ('<link href="https://fonts.googleapis.com/css2?'
-             'family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400'
-             '&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400'
+             'family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;'
+             '0,7..72,600;0,7..72,700;1,7..72,400'
+             '&family=IBM+Plex+Mono:ital,opsz,wght@0,400;0,500;0,600;0,700;1,400'
              '&display=swap" rel="stylesheet">')
 BOOT_OVERLAY_HTML = (
     '<div id="boot-overlay" aria-hidden="true">'
     '<div class="boot-inner">'
-    '<div class="boot-wordmark">MAMBA-3-LITE</div>'
-    '<div class="boot-line">loading weights '
-    '<span class="boot-bar">[\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591] 0%</span>'
+    '<div class="boot-wordmark">Mamba-3-Lite</div>'
+    '<div class="boot-line">Loading the notes'
+    ' <span class="boot-bar"></span>'
     '</div></div></div>'
 )
 BOOT_SCRIPT = """<script>
@@ -86,7 +135,7 @@ HEAD_TEMPLATE = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title}</title>
-    <!-- Fonts — secondary mono voice for headings/numerics, JetBrains for body. -->
+    <!-- Fonts — Literata for prose, IBM Plex Mono for code and data. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     {font_link}
@@ -98,7 +147,7 @@ HEAD_TEMPLATE = """<!DOCTYPE html>
 """
 
 DOC_EXTRA_HEAD = """    <!-- Highlight.js for Syntax Highlighting -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <!-- KaTeX for LaTeX Math -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
@@ -154,6 +203,147 @@ def github_base_url() -> str:
     return f"{out}/blob/{branch}" if branch else ""
 
 
+def github_raw_base_url() -> str:
+    """Raw-content twin of `github_base_url`, for <img src> that must render
+    rather than open an HTML blob page."""
+    blob_base = github_base_url()
+    if not blob_base:
+        return ""
+    return blob_base.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")
+
+
+# Tags the portal renders from raw markdown HTML. Anything outside this set is
+# dropped rather than passed through, so a doc can never inject script.
+RAW_ALLOWED_TAGS = {
+    'div', 'p', 'span', 'a', 'img', 'br', 'hr', 'em', 'strong', 'b', 'i',
+    'code', 'pre', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th',
+    'td', 'details', 'summary', 'figure', 'figcaption', 'sup', 'sub', 'kbd',
+    'small', 'abbr', 'del', 'ins', 'u',
+}
+# Attributes kept per tag. `style` is deliberately absent: raw inline styles
+# would override the design system's tokens.
+RAW_ALLOWED_ATTRS = {
+    '*': {'class', 'id', 'title', 'align', 'width', 'height', 'colspan', 'rowspan'},
+    'a': {'href', 'target', 'rel'},
+    'img': {'src', 'alt', 'loading', 'decoding'},
+    'td': {'align'},
+    'th': {'align', 'scope'},
+    'abbr': {'title'},
+}
+RAW_VOID_TAGS = {'br', 'hr', 'img'}
+_RAW_TAG_RE = re.compile(r'<\s*(/?)\s*([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[^<>]*?)?)\s*(/?)\s*>')
+
+
+def resolve_asset_src(src: str, src_rel_path: str) -> str:
+    """Point an <img src> at something that actually renders.
+
+    The build ships no PNGs, so a repo-relative path becomes a raw GitHub URL.
+    Absolute URLs and data URIs pass through untouched.
+    """
+    src = src.strip()
+    if not src or src.startswith(("http://", "https://", "data:", "//", "#")):
+        return src
+    raw_base = github_raw_base_url()
+    if not raw_base:
+        return src
+    src_dir = WORKSPACE_DIR / Path(src_rel_path).parent
+    candidate = (src_dir / src).resolve()
+    try:
+        repo_rel = candidate.relative_to(WORKSPACE_DIR).as_posix()
+    except ValueError:
+        return src
+    return f"{raw_base}/{repo_rel}"
+
+
+def resolve_raw_href(href: str, src_rel_path: str) -> str:
+    """Resolve an href inside a raw HTML island (fix_md_links never sees these)."""
+    href = href.strip()
+    if not href or href.startswith(("http://", "https://", "mailto:", "#")):
+        return href
+    path_part, _, anchor = href.partition("#")
+    src_dir = WORKSPACE_DIR / Path(src_rel_path).parent
+    if path_part.endswith(".md"):
+        for candidate in (src_dir / path_part, WORKSPACE_DIR / path_part):
+            if candidate.exists():
+                try:
+                    repo_rel = candidate.resolve().relative_to(WORKSPACE_DIR)
+                except ValueError:
+                    continue
+                rel = os.path.relpath(WORKSPACE_DIR / repo_rel, src_dir).replace(os.sep, '/')
+                return rel[:-3] + ".html" + (f"#{anchor}" if anchor else "")
+    repo_base = github_base_url()
+    if repo_base:
+        try:
+            repo_rel = (src_dir / path_part).resolve().relative_to(WORKSPACE_DIR)
+            return f"{repo_base}/{repo_rel}" + (f"#{anchor}" if anchor else "")
+        except ValueError:
+            pass
+    return href
+
+
+def sanitize_raw_html(raw: str, src_rel_path: str, format_text=None) -> str:
+    """Filter a raw HTML island down to the portal's tag/attribute allowlist.
+
+    Relative `src`/`href` are rewritten so they resolve from `docs_html/`,
+    where the referenced images and sibling docs do not exist on disk.
+    `format_text` formats the text nodes between tags, so markdown emphasis
+    inside a passthrough island still renders.
+    """
+    out = []
+    pos = 0
+    for m in _RAW_TAG_RE.finditer(raw):
+        chunk = raw[pos:m.start()]
+        out.append(format_text(chunk) if format_text else html.escape(chunk, quote=False))
+        pos = m.end()
+
+        closing, tag, attrs_raw, self_closing = m.group(1), m.group(2).lower(), m.group(3) or '', m.group(4)
+        if tag not in RAW_ALLOWED_TAGS:
+            continue
+        if closing:
+            out.append(f'</{tag}>')
+            continue
+
+        allowed = RAW_ALLOWED_ATTRS['*'] | RAW_ALLOWED_ATTRS.get(tag, set())
+        kept = []
+        for name, value in re.findall(r'([a-zA-Z-]+)\s*=\s*"([^"]*)"', attrs_raw):
+            name = name.lower()
+            if name not in allowed:
+                continue
+            if tag == 'img' and name == 'src':
+                value = resolve_asset_src(html.unescape(value), src_rel_path)
+            elif tag == 'a' and name == 'href':
+                value = resolve_raw_href(html.unescape(value), src_rel_path)
+                if 'target' in attrs_raw.lower() and 'rel' not in attrs_raw.lower():
+                    kept.append(('rel', 'noopener noreferrer'))
+            elif tag == 'a' and name == 'target' and value not in ('_blank', '_self'):
+                continue
+            kept.append((name, html.escape(value, quote=True)))
+
+        attr_str = ''.join(f' {n}="{v}"' for n, v in kept)
+        if tag not in RAW_VOID_TAGS and self_closing:
+            out.append(f'<{tag}{attr_str}></{tag}>')
+        else:
+            out.append(f'<{tag}{attr_str}>')
+    tail = raw[pos:]
+    out.append(format_text(tail) if format_text else html.escape(tail, quote=False))
+    return ''.join(out)
+
+
+def looks_like_raw_html_block(text: str) -> bool:
+    """True when a paragraph's opening line is a real HTML island, not prose.
+
+    Prose like "a < b and c > d" must stay escaped text; a line whose first
+    tag is allowlisted HTML is a passthrough block.
+    """
+    stripped = text.strip()
+    if not stripped.startswith('<'):
+        return False
+    m = _RAW_TAG_RE.match(stripped)
+    if not m:
+        return False
+    return m.group(2).lower() in RAW_ALLOWED_TAGS
+
+
 def fix_md_links(content: str, src_rel_path: str) -> str:
     """Rewrite relative markdown links for the HTML build.
 
@@ -187,6 +377,13 @@ def fix_md_links(content: str, src_rel_path: str) -> str:
                     # Prefer src-relative; falls through to a relative href
                     # the build still ships (harmless if unresolved).
                     repo_rel = Path(src_rel_path).parent / path_part
+            repo_rel_posix = repo_rel.as_posix()
+            if repo_rel_posix not in PUBLISHED_MD:
+                # Not a chapter: point at the source file rather than at a
+                # page the build never generates.
+                if repo_base:
+                    return f"[{label}]({repo_base}/{repo_rel_posix})"
+                return f"[{label}]({url})"
             # Emit a href relative to the current output file's directory.
             rel = os.path.relpath(WORKSPACE_DIR / repo_rel, src_dir).replace(os.sep, '/')
             target = rel[:-3] + ".html"
@@ -468,6 +665,23 @@ def parse_markdown_to_html(md_text: str, src_rel_path: str) -> tuple[str, list[d
             i += 1
             continue
 
+        # Raw HTML island. CommonMark ends an HTML block at the first blank
+        # line, which is what lets `<div align="center">` wrap markdown: the
+        # tag is its own block and the prose inside is still parsed below.
+        if looks_like_raw_html_block(stripped):
+            flush_table()
+            flush_list()
+            flush_blockquote()
+            block_lines = [line]
+            j = i + 1
+            while j < len(lines) and lines[j].strip():
+                block_lines.append(lines[j])
+                j += 1
+            i = j
+            html_lines.append(sanitize_raw_html(
+                '\n'.join(block_lines), src_rel_path, format_text=render_inline_formatting))
+            continue
+
         # Standard Paragraph
         flush_table()
         flush_list()
@@ -537,25 +751,24 @@ def compute_rel_prefix(target_rel_path: str) -> str:
 
 def build_sidebar_html(current_rel_path: str, rel_prefix: str) -> str:
     """Build the navigation sidebar HTML."""
-    sidebar_sections = {"Core": [], "Concepts": [], "Guides": [], "References": []}
+    sidebar_sections: dict[str, list[str]] = {}
 
-    for rel_path, category, display_title in DOC_FILES:
+    for rel_path, part, display_title, _blurb in DOC_FILES:
         target_html_rel = rel_path.replace(".md", ".html")
         href = rel_prefix + target_html_rel
-        is_active = (rel_path == current_rel_path)
+        is_active = (rel_path == current_rel_path) or (rel_path.replace(".md", ".html") == current_rel_path)
         active_cls = "active" if is_active else ""
-        sidebar_sections[category].append(
+        sidebar_sections.setdefault(part, []).append(
             f'<li class="nav-item"><a href="{href}" class="nav-link {active_cls}" title="{display_title}"><span class="nav-link-text">{display_title}</span></a></li>'
         )
 
     html_out = ['<div class="sidebar-search"><input type="text" id="navSearch" placeholder="Search docs..." onkeyup="filterNav()"></div>']
 
-    for cat_name, items in sidebar_sections.items():
-        if items:
-            html_out.append('<div class="nav-group">')
-            html_out.append(f'<div class="nav-group-title">{cat_name}</div>')
-            html_out.append(f'<ul class="nav-list">{"".join(items)}</ul>')
-            html_out.append('</div>')
+    for part, items in sidebar_sections.items():
+        html_out.append('<div class="nav-group">')
+        html_out.append(f'<div class="nav-group-title">{part}</div>')
+        html_out.append(f'<ul class="nav-list">{"".join(items)}</ul>')
+        html_out.append('</div>')
 
     return "\n".join(html_out)
 
@@ -685,56 +898,32 @@ def generate_index_portal():
     """Generate interactive index.html home portal."""
     sidebar_html = build_sidebar_html("index.html", "./")
 
-    categories = {
-        ("CORE", "Core Architecture"): [
-            ("README.html", "README", "Project Overview", "434M-param pure-PyTorch Mamba-3 reproduction with complex-valued SSD state spaces."),
-            ("AGENTS.html", "AGENTS", "System Architecture", "Codebase contracts, hard rules, Triton carve-out, and numerical-stability rules."),
-            ("SKILLS.html", "SKILLS", "Skills Map", "Day-to-day developer workflows and agent competencies."),
-            ("docs/README.html", "DOCS", "Documentation Index", "A map of the concepts, guides, and API references in this portal."),
-            ("docs/training.html", "CORE", "Training Pipeline", "Corpus mix, shard format, PretrainDataset layouts, and the data path end to end."),
-        ],
-        ("CONCEPTS", "Architecture & Concepts"): [
-            ("docs/concepts/state-space-foundations.html", "C1", "SSD Foundations", "From RNNs to SSMs: the linear recurrence, ZOH discretization, and the S4 → Mamba-3 arc."),
-            ("docs/concepts/ssd-theory.html", "C2", "SSD Theory", "State-space duality, complex states (N-halving), and the chunkwise algorithm einsum-by-einsum."),
-            ("docs/concepts/mimo.html", "C3", "MIMO Head Mixing", "SISO → MIMO fully-connected mixer across SSM heads — why, the math, identity init."),
-            ("docs/concepts/block-and-stability.html", "C4", "Block & Stability", "RMSNorm → SSD → MIMO → SwiGLU wiring, every dtype/precision choice, and the scaling numbers."),
-        ],
-        ("GUIDES", "Guides & Playbooks"): [
-            ("docs/guides/quickstart.html", "G0", "Quickstart", "From zero to a running training loop — install, verify the math, full run, resume."),
-            ("docs/guides/pretrain-cli.html", "G1", "Pretrain CLI", "Every training/pretrain.py:TrainingConfig flag and the optimizer/scheduler wiring."),
-            ("docs/guides/training-runbook.html", "G2", "A100 Runbook", "Launch, monitor, NaN recovery, and resume for a production pre-training run."),
-            ("docs/guides/tuning.html", "G3", "Tuning", "chunk_size, lr, batch geometry, compile, Triton dispatch — measure, don't guess."),
-            ("docs/guides/extending.html", "G4", "Extending", "Add an SSM variant or a sanctioned Triton kernel with the test/doc contract."),
-        ],
-        ("REFS", "API References"): [
-            ("docs/references/config-reference.html", "R1", "Config Reference", "ModelConfig fields, the annotated YAML, and the 16.78B-vs-8.0B token arithmetic."),
-            ("docs/references/ssd-reference.html", "R2", "SSD Reference", "The complex scan API (ssd_complex_chunkwise, ssd_naive_complex) and the kernel contract."),
-            ("docs/references/model-reference.html", "R3", "Model Reference", "Mamba3Transformer, Mamba3Block + dispatch, and MIMO — shapes and wiring."),
-            ("docs/references/training-reference.html", "R4", "Training Reference", "PretrainDataset, CheckpointManager, TrainingLogger, and the data pipeline shim."),
-        ],
-    }
-
-    portal_cards_html = ""
-    for (cat_tag, cat_title), items in categories.items():
-        cards = ""
-        for href, tag, title, desc in items:
-            cards += f"""
-            <a href="{href}" class="portal-card">
-                <span class="card-tag">{tag}</span>
+    # The index is the book's table of contents. It is derived from DOC_FILES
+    # so the sidebar and the index cannot disagree about the chapter list.
+    parts: dict[str, list[str]] = {}
+    chapter_no = 0
+    for rel_path, part, display_title, blurb in DOC_FILES:
+        chapter_no += 1
+        parts.setdefault(part, []).append(f"""
+            <a href="{rel_path.replace('.md', '.html')}" class="portal-card">
+                <span class="card-tag">Ch {chapter_no}</span>
                 <div class="card-body">
-                    <h3 class="card-heading">{title}</h3>
-                    <p class="card-desc">{desc}</p>
+                    <h3 class="card-heading">{display_title}</h3>
+                    <p class="card-desc">{blurb}</p>
                 </div>
             </a>
-            """
+            """)
+
+    portal_cards_html = ""
+    for part, cards in parts.items():
+        n = len(cards)
         portal_cards_html += f"""
         <section class="portal-section">
             <header class="portal-section-head">
-                <span class="portal-section-mark">&sect; {cat_tag.lower()}</span>
-                <h2 class="portal-section-title">{cat_title}</h2>
-                <span class="portal-section-meta">{len(items)} entries</span>
+                <span class="portal-section-mark">{n} {'chapter' if n == 1 else 'chapters'}</span>
+                <h2 class="portal-section-title">{part}</h2>
             </header>
-            <div class="portal-grid">{cards}</div>
+            <div class="portal-grid">{''.join(cards)}</div>
         </section>
         """
 
@@ -776,21 +965,8 @@ def generate_index_portal():
         <main class="main-content">
             <div class="content-container">
                 <div class="hero-banner">
-                    <div class="hero-margin-ticks" aria-hidden="true"></div>
-
-                    <div class="hero-coords" aria-hidden="true">
-                        <span class="coord">FIG &middot; A0</span>
-                        <span class="coord-sep">/</span>
-                        <span class="coord">PARAM 434M</span>
-                        <span class="coord-sep">/</span>
-                        <span class="coord">STATE N&middot;64 cplx</span>
-                        <span class="coord-sep">/</span>
-                        <span class="coord">CTX 2048</span>
-                        <span class="coord-sep">/</span>
-                        <span class="coord">CHUNK 64</span>
-                    </div>
-                    <h1 class="hero-title">Mamba<span class="hero-title-em">-3</span><span class="hero-title-em-accent">-Lite</span></h1>
-                    <p class="hero-subtitle">From-scratch PyTorch reproduction of Mamba-3 at ~434M params — complex-valued SSD state spaces (N=64, complex64), a fully-connected MIMO head mixer, and zero causal convolution. Pure PyTorch, one sanctioned opt-in Triton kernel. Read it like a field notebook: a name, a wiring sketch, then the measurements.</p>
+                    <h1 class="hero-title">Mamba-3-Lite</h1>
+                    <p class="hero-subtitle">From-scratch PyTorch reproduction of Mamba-3 at ~434M params — complex-valued SSD state spaces (N=64, complex64), a fully-connected MIMO head mixer, and zero causal convolution. Pure PyTorch, one sanctioned opt-in Triton kernel. Each document shows the arithmetic, not just the result.</p>
 
                     <div class="mamba-telemetry-ribbon" aria-label="Key Mamba-3 Architectural Metrics">
                         <div class="telemetry-card terra">
@@ -1088,14 +1264,18 @@ def generate_assets():
 
 def main():
     print("Building Mamba-3-Lite HTML Documentation...")
+    # docs_html/ is a build artifact, so wipe it first. Otherwise a chapter
+    # dropped from DOC_FILES survives as a stale page and gets published.
+    if OUTPUT_DIR.exists():
+        shutil.rmtree(OUTPUT_DIR)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / ".nojekyll").touch()
 
     generate_assets()
 
-    for rel_path, category, display_title in DOC_FILES:
+    for rel_path, part, display_title, _blurb in DOC_FILES:
         print(f"Generating: {rel_path} -> docs_html/{rel_path.replace('.md', '.html')}")
-        generate_html_page(rel_path, category, display_title)
+        generate_html_page(rel_path, part, display_title)
 
     generate_index_portal()
     print("\nDocumentation build complete!")

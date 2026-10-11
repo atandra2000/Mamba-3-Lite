@@ -48,24 +48,24 @@
         var lastTime = 0;
         var simTime = 0;
 
-        // Palette tokens matching the dark bench notebook theme
+        // Palette tokens matching the printed-reader theme
         var PALETTE = {
-            paperBg: '#0e0c0a',
-            paperCenter: '#181410',
-            gridRule: 'rgba(58, 50, 38, 0.45)',
-            gridAxis: 'rgba(201, 163, 92, 0.35)',
-            unitCircle: 'rgba(201, 163, 92, 0.22)',
-            olive: '#9a9440',
-            oliveGlow: 'rgba(154, 148, 64, 0.65)',
-            oliveTint: 'rgba(154, 148, 64, 0.15)',
-            terracotta: '#e07a3f',
-            terracottaGlow: 'rgba(224, 122, 63, 0.65)',
-            terracottaTint: 'rgba(224, 122, 63, 0.15)',
-            gold: '#c9a35c',
-            goldGlow: 'rgba(201, 163, 92, 0.7)',
-            coreHot: '#fffaf0',
-            ink: '#d8ccb4',
-            inkFaint: '#7a7160'
+            paperBg: '#FFFFFF',
+            paperCenter: '#F5F6F6',
+            gridRule: 'rgba(120, 129, 138, 0.45)',
+            gridAxis: 'rgba(31, 74, 115, 0.25)',
+            unitCircle: 'rgba(31, 74, 115, 0.18)',
+            olive: '#5C6B5F',
+            oliveGlow: 'rgba(92, 107, 95, 0.55)',
+            oliveTint: 'rgba(92, 107, 95, 0.12)',
+            terracotta: '#1F4A73',
+            terracottaGlow: 'rgba(31, 74, 115, 0.55)',
+            terracottaTint: 'rgba(31, 74, 115, 0.10)',
+            gold: '#8A6A2E',
+            goldGlow: 'rgba(138, 106, 46, 0.6)',
+            coreHot: '#16191D',
+            ink: '#16191D',
+            inkFaint: '#78818A'
         };
 
         // 32 Conjugate Eigenvalue Pairs = 64 Complex States (N=64)
@@ -211,7 +211,7 @@
             var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR * 1.35);
             grad.addColorStop(0, PALETTE.paperCenter);
             grad.addColorStop(0.6, PALETTE.paperBg);
-            grad.addColorStop(1, '#070605');
+            grad.addColorStop(1, '#FFFFFF');
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, width, height);
 
@@ -230,7 +230,7 @@
                 ctx.beginPath();
                 ctx.moveTo(cx + rInner * Math.cos(tkAng), cy + rInner * Math.sin(tkAng));
                 ctx.lineTo(cx + rOuter * Math.cos(tkAng), cy + rOuter * Math.sin(tkAng));
-                ctx.strokeStyle = isMajor ? PALETTE.gold : (isSemi ? 'rgba(201, 163, 92, 0.45)' : 'rgba(58, 50, 38, 0.4)');
+                ctx.strokeStyle = isMajor ? PALETTE.gold : (isSemi ? 'rgba(138, 106, 46, 0.45)' : 'rgba(120, 129, 138, 0.4)');
                 ctx.lineWidth = isMajor ? 1.2 : 0.8;
                 ctx.stroke();
             }
@@ -257,7 +257,7 @@
                 var lx = cx + r * Math.cos(angLabel);
                 var ly = cy + r * Math.sin(angLabel);
                 ctx.fillStyle = PALETTE.gold;
-                ctx.font = 'bold 9px "JetBrains Mono", monospace';
+                ctx.font = 'bold 9px "IBM Plex Mono", monospace';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText('|z|=' + frac.toFixed(2), lx + 6, ly - 4);
@@ -281,7 +281,7 @@
 
             // Axis labels with generous margins
             ctx.fillStyle = PALETTE.gold;
-            ctx.font = 'bold 10px "JetBrains Mono", monospace';
+            ctx.font = 'bold 10px "IBM Plex Mono", monospace';
             ctx.textAlign = 'left';
             ctx.fillText('+Re', cx + maxR * 1.04 + 4, cy + 3);
             ctx.textAlign = 'right';
@@ -291,7 +291,7 @@
             ctx.fillText('+i Im', cx, cy - maxR * 1.04 - 4);
             ctx.fillText('-i Im', cx, cy + maxR * 1.04 + 12);
             // Subtle angular rays (30, 45, 60 deg)
-            ctx.strokeStyle = 'rgba(58, 50, 38, 0.22)';
+            ctx.strokeStyle = 'rgba(120, 129, 138, 0.22)';
             ctx.setLineDash([1, 6]);
             [Math.PI / 6, Math.PI / 4, Math.PI / 3, Math.PI * 2 / 3, Math.PI * 3 / 4, Math.PI * 5 / 6].forEach(function (ang) {
                 ctx.beginPath();
@@ -333,9 +333,9 @@
 
                 // Gradient stroke along spiral
                 var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
-                grad.addColorStop(0, 'rgba(224, 122, 63, 0.45)');
-                grad.addColorStop(0.5, 'rgba(154, 148, 64, 0.25)');
-                grad.addColorStop(1, 'rgba(44, 38, 28, 0.05)');
+                grad.addColorStop(0, 'rgba(31, 74, 115, 0.45)');
+                grad.addColorStop(0.5, 'rgba(92, 107, 95, 0.25)');
+                grad.addColorStop(1, 'rgba(120, 129, 138, 0.05)');
                 ctx.strokeStyle = grad;
                 ctx.lineWidth = 1.2;
                 ctx.stroke();
@@ -390,14 +390,14 @@
                     ctx.beginPath();
                     ctx.moveTo(px, py);
                     ctx.lineTo(px + Math.cos(ang) * arrowLen * flowIntensity, py + Math.sin(ang) * arrowLen * flowIntensity);
-                    ctx.strokeStyle = dist < maxR * 0.5 ? 'rgba(224, 122, 63, 0.45)' : 'rgba(154, 148, 64, 0.35)';
+                    ctx.strokeStyle = dist < maxR * 0.5 ? 'rgba(31, 74, 115, 0.45)' : 'rgba(92, 107, 95, 0.35)';
                     ctx.lineWidth = 1.0;
                     ctx.stroke();
 
                     // Micro dot at base
                     ctx.beginPath();
                     ctx.arc(px, py, 1.0, 0, Math.PI * 2);
-                    ctx.fillStyle = 'rgba(201, 163, 92, 0.4)';
+                    ctx.fillStyle = 'rgba(138, 106, 46, 0.4)';
                     ctx.fill();
                 }
             }
@@ -457,7 +457,7 @@
                     var r = pair.r * maxR;
                     ctx.beginPath();
                     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                    ctx.strokeStyle = 'rgba(58, 50, 38, 0.4)';
+                    ctx.strokeStyle = 'rgba(120, 129, 138, 0.4)';
                     ctx.lineWidth = 0.8;
                     ctx.stroke();
 
@@ -487,7 +487,7 @@
                     ctx.lineWidth = 1.5;
                     ctx.setLineDash([3, 3]);
                 } else {
-                    ctx.strokeStyle = 'rgba(201, 163, 92, 0.16)';
+                    ctx.strokeStyle = 'rgba(138, 106, 46, 0.16)';
                     ctx.lineWidth = 0.8;
                     ctx.setLineDash([2, 4]);
                 }
@@ -504,7 +504,7 @@
                         ctx.beginPath();
                         ctx.moveTo(pair.trailPlus[i].x, pair.trailPlus[i].y);
                         ctx.lineTo(pair.trailPlus[i + 1].x, pair.trailPlus[i + 1].y);
-                        ctx.strokeStyle = 'rgba(154, 148, 64, ' + alpha.toFixed(3) + ')';
+                        ctx.strokeStyle = 'rgba(92, 107, 95, ' + alpha.toFixed(3) + ')';
                         ctx.lineWidth = Math.max(0.6, 2.2 * (1 - (i / pair.trailPlus.length)));
                         ctx.stroke();
                     }
@@ -517,7 +517,7 @@
                         ctx.beginPath();
                         ctx.moveTo(pair.trailMinus[j].x, pair.trailMinus[j].y);
                         ctx.lineTo(pair.trailMinus[j + 1].x, pair.trailMinus[j + 1].y);
-                        ctx.strokeStyle = 'rgba(224, 122, 63, ' + alphaT.toFixed(3) + ')';
+                        ctx.strokeStyle = 'rgba(31, 74, 115, ' + alphaT.toFixed(3) + ')';
                         ctx.lineWidth = Math.max(0.6, 2.2 * (1 - (j / pair.trailMinus.length)));
                         ctx.stroke();
                     }
@@ -533,9 +533,9 @@
                 // --- Im+ Node (Olive) ---
                 // Outer glow
                 var gradPlus = ctx.createRadialGradient(pair.xPlus, pair.yPlus, 0, pair.xPlus, pair.yPlus, baseR * 3.5 + extraGlow);
-                gradPlus.addColorStop(0, isSelected ? 'rgba(216, 204, 180, 0.95)' : PALETTE.oliveGlow);
+                gradPlus.addColorStop(0, isSelected ? 'rgba(31, 74, 115, 0.95)' : PALETTE.oliveGlow);
                 gradPlus.addColorStop(0.5, PALETTE.oliveTint);
-                gradPlus.addColorStop(1, 'rgba(154, 148, 64, 0)');
+                gradPlus.addColorStop(1, 'rgba(92, 107, 95, 0)');
                 ctx.fillStyle = gradPlus;
                 ctx.beginPath();
                 ctx.arc(pair.xPlus, pair.yPlus, baseR * 3.5 + extraGlow, 0, Math.PI * 2);
@@ -544,18 +544,18 @@
                 // Core dot
                 ctx.beginPath();
                 ctx.arc(pair.xPlus, pair.yPlus, baseR, 0, Math.PI * 2);
-                ctx.fillStyle = isSelected ? '#ffffff' : PALETTE.olive;
+                ctx.fillStyle = isSelected ? '#16191D' : PALETTE.olive;
                 ctx.fill();
-                ctx.strokeStyle = '#ffffff';
+                ctx.strokeStyle = '#16191D';
                 ctx.lineWidth = 0.7;
                 ctx.stroke();
 
                 // --- Im- Node (Terracotta) ---
                 // Outer glow
                 var gradMinus = ctx.createRadialGradient(pair.xMinus, pair.yMinus, 0, pair.xMinus, pair.yMinus, baseR * 3.5 + extraGlow);
-                gradMinus.addColorStop(0, isSelected ? 'rgba(216, 204, 180, 0.95)' : PALETTE.terracottaGlow);
+                gradMinus.addColorStop(0, isSelected ? 'rgba(31, 74, 115, 0.95)' : PALETTE.terracottaGlow);
                 gradMinus.addColorStop(0.5, PALETTE.terracottaTint);
-                gradMinus.addColorStop(1, 'rgba(224, 122, 63, 0)');
+                gradMinus.addColorStop(1, 'rgba(31, 74, 115, 0)');
                 ctx.fillStyle = gradMinus;
                 ctx.beginPath();
                 ctx.arc(pair.xMinus, pair.yMinus, baseR * 3.5 + extraGlow, 0, Math.PI * 2);
@@ -564,9 +564,9 @@
                 // Core dot
                 ctx.beginPath();
                 ctx.arc(pair.xMinus, pair.yMinus, baseR, 0, Math.PI * 2);
-                ctx.fillStyle = isSelected ? '#ffffff' : PALETTE.terracotta;
+                ctx.fillStyle = isSelected ? '#16191D' : PALETTE.terracotta;
                 ctx.fill();
-                ctx.strokeStyle = '#ffffff';
+                ctx.strokeStyle = '#16191D';
                 ctx.lineWidth = 0.7;
                 ctx.stroke();
 
@@ -611,13 +611,13 @@
 
                 ctx.beginPath();
                 ctx.arc(wave.x, wave.y, wave.r, 0, Math.PI * 2);
-                ctx.strokeStyle = 'rgba(224, 122, 63, ' + wave.alpha.toFixed(3) + ')';
+                ctx.strokeStyle = 'rgba(31, 74, 115, ' + wave.alpha.toFixed(3) + ')';
                 ctx.lineWidth = 1.8;
                 ctx.stroke();
 
                 ctx.beginPath();
                 ctx.arc(wave.x, wave.y, Math.max(0, wave.r - 8), 0, Math.PI * 2);
-                ctx.strokeStyle = 'rgba(201, 163, 92, ' + (wave.alpha * 0.5).toFixed(3) + ')';
+                ctx.strokeStyle = 'rgba(138, 106, 46, ' + (wave.alpha * 0.5).toFixed(3) + ')';
                 ctx.lineWidth = 1.0;
                 ctx.stroke();
             }
@@ -635,10 +635,10 @@
 
             // Outer Radiant Nebula Glow
             var outerGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 48 * breathe);
-            outerGrad.addColorStop(0, 'rgba(224, 122, 63, 0.45)');
-            outerGrad.addColorStop(0.35, 'rgba(154, 148, 64, 0.20)');
-            outerGrad.addColorStop(0.7, 'rgba(201, 163, 92, 0.08)');
-            outerGrad.addColorStop(1, 'rgba(14, 12, 10, 0)');
+            outerGrad.addColorStop(0, 'rgba(31, 74, 115, 0.45)');
+            outerGrad.addColorStop(0.35, 'rgba(92, 107, 95, 0.20)');
+            outerGrad.addColorStop(0.7, 'rgba(138, 106, 46, 0.08)');
+            outerGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
             ctx.fillStyle = outerGrad;
             ctx.beginPath();
             ctx.arc(cx, cy, 48 * breathe, 0, Math.PI * 2);
@@ -654,9 +654,9 @@
             // Hot Inner Singularity
             var innerGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR);
             innerGrad.addColorStop(0, PALETTE.coreHot);
-            innerGrad.addColorStop(0.4, '#f2d096');
+            innerGrad.addColorStop(0.4, '#4B5359');
             innerGrad.addColorStop(0.85, PALETTE.terracotta);
-            innerGrad.addColorStop(1, 'rgba(224, 122, 63, 0.8)');
+            innerGrad.addColorStop(1, 'rgba(31, 74, 115, 0.8)');
             ctx.fillStyle = innerGrad;
             ctx.beginPath();
             ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
@@ -801,23 +801,23 @@
         var simTime = 0;
 
         var PALETTE = {
-            paperBg: '#0e0c0a',
-            paperStation: '#161310',
-            paperStationHover: '#1c1813',
-            rule: '#2c261c',
-            ruleStrong: '#3a3226',
-            terracotta: '#e07a3f',
-            terracottaGlow: 'rgba(224, 122, 63, 0.75)',
-            terracottaTint: 'rgba(224, 122, 63, 0.16)',
-            olive: '#9a9440',
-            oliveGlow: 'rgba(154, 148, 64, 0.75)',
-            oliveTint: 'rgba(154, 148, 64, 0.16)',
-            gold: '#c9a35c',
-            goldGlow: 'rgba(201, 163, 92, 0.8)',
-            goldTint: 'rgba(201, 163, 92, 0.2)',
-            ink: '#d8ccb4',
-            inkSoft: '#b3a68c',
-            inkFaint: '#7a7160'
+            paperBg: '#FFFFFF',
+            paperStation: '#F4F5F5',
+            paperStationHover: '#EDEFEF',
+            rule: '#E1E5E6',
+            ruleStrong: '#D2D7D9',
+            terracotta: '#1F4A73',
+            terracottaGlow: 'rgba(31, 74, 115, 0.4)',
+            terracottaTint: 'rgba(31, 74, 115, 0.16)',
+            olive: '#5C6B5F',
+            oliveGlow: 'rgba(92, 107, 95, 0.4)',
+            oliveTint: 'rgba(92, 107, 95, 0.16)',
+            gold: '#8A6A2E',
+            goldGlow: 'rgba(138, 106, 46, 0.45)',
+            goldTint: 'rgba(138, 106, 46, 0.12)',
+            ink: '#16191D',
+            inkSoft: '#4B5359',
+            inkFaint: '#78818A'
         };
 
         var STAGES = [
@@ -1058,7 +1058,7 @@
 
             ctx.save();
             // Subtle technical grid
-            ctx.strokeStyle = 'rgba(58, 50, 38, 0.22)';
+            ctx.strokeStyle = 'rgba(120, 129, 138, 0.22)';
             ctx.lineWidth = 1;
             ctx.setLineDash([2, 8]);
             for (var x = 20; x < width; x += 40) {
@@ -1074,7 +1074,7 @@
             ctx.beginPath();
             ctx.moveTo(14, fwdY);
             ctx.lineTo(width - 14, fwdY);
-            ctx.strokeStyle = 'rgba(224, 122, 63, 0.28)';
+            ctx.strokeStyle = 'rgba(31, 74, 115, 0.28)';
             ctx.lineWidth = 1.5;
             ctx.setLineDash([4, 6]);
             ctx.stroke();
@@ -1084,19 +1084,19 @@
             ctx.beginPath();
             ctx.moveTo(14, bwdY);
             ctx.lineTo(width - 14, bwdY);
-            ctx.strokeStyle = 'rgba(154, 148, 64, 0.28)';
+            ctx.strokeStyle = 'rgba(92, 107, 95, 0.28)';
             ctx.lineWidth = 1.5;
             ctx.setLineDash([4, 6]);
             ctx.stroke();
             ctx.setLineDash([]);
 
             ctx.fillStyle = PALETTE.terracotta;
-            ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+            ctx.font = 'bold 8.5px "IBM Plex Mono", monospace';
             ctx.textAlign = 'left';
             ctx.fillText('FORWARD CONDUIT (ACTIVATIONS) →', 20, fwdY - 6);
 
             ctx.fillStyle = PALETTE.olive;
-            ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+            ctx.font = 'bold 8.5px "IBM Plex Mono", monospace';
             ctx.textAlign = 'right';
             ctx.fillText('← BACKWARD CONDUIT (GRADIENTS)', width - 20, bwdY + 14);
         }
@@ -1123,7 +1123,7 @@
                     ctx.beginPath();
                     ctx.moveTo(px, py);
                     ctx.lineTo(px - 14 * p.speed, py);
-                    ctx.strokeStyle = 'rgba(224, 122, 63, 0.35)';
+                    ctx.strokeStyle = 'rgba(31, 74, 115, 0.35)';
                     ctx.lineWidth = p.size * 0.7;
                     ctx.stroke();
                 });
@@ -1147,7 +1147,7 @@
                     ctx.beginPath();
                     ctx.moveTo(px, py);
                     ctx.lineTo(px + 14 * p.speed, py);
-                    ctx.strokeStyle = 'rgba(154, 148, 64, 0.35)';
+                    ctx.strokeStyle = 'rgba(92, 107, 95, 0.35)';
                     ctx.lineWidth = p.size * 0.7;
                     ctx.stroke();
                 });
@@ -1167,7 +1167,7 @@
 
                 ctx.beginPath();
                 ctx.arc(ap.x, ap.y, 2.0 * ap.life, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(201, 163, 92, ' + ap.life.toFixed(2) + ')';
+                ctx.fillStyle = 'rgba(138, 106, 46, ' + ap.life.toFixed(2) + ')';
                 ctx.fill();
             }
 
@@ -1215,13 +1215,13 @@
 
                 if (st.glowAdam > 0.1) {
                     borderColor = PALETTE.gold;
-                    cardBg = 'rgba(201, 163, 92, ' + (0.15 * st.glowAdam).toFixed(2) + ')';
+                    cardBg = 'rgba(138, 106, 46, ' + (0.15 * st.glowAdam).toFixed(2) + ')';
                 } else if (st.glowForward > 0.1) {
                     borderColor = PALETTE.terracotta;
-                    cardBg = 'rgba(224, 122, 63, ' + (0.14 * st.glowForward).toFixed(2) + ')';
+                    cardBg = 'rgba(31, 74, 115, ' + (0.14 * st.glowForward).toFixed(2) + ')';
                 } else if (st.glowBackward > 0.1) {
                     borderColor = PALETTE.olive;
-                    cardBg = 'rgba(154, 148, 64, ' + (0.14 * st.glowBackward).toFixed(2) + ')';
+                    cardBg = 'rgba(92, 107, 95, ' + (0.14 * st.glowBackward).toFixed(2) + ')';
                 }
 
                 // Station Background & Border
@@ -1266,27 +1266,27 @@
                 var displayTitle = isCompact ? (st.stage.id === 1 ? 'Embed' : st.stage.id === 2 ? 'In-Proj' : st.stage.id === 3 ? 'SSD' : st.stage.id === 4 ? 'MIMO' : st.stage.id === 5 ? 'SwiGLU' : 'Loss') : st.stage.title;
 
                 // Stage Number Badge
-                ctx.font = isCompact ? 'bold 7.5px "JetBrains Mono", monospace' : 'bold 8.5px "JetBrains Mono", monospace';
+                ctx.font = isCompact ? 'bold 7.5px "IBM Plex Mono", monospace' : 'bold 8.5px "IBM Plex Mono", monospace';
                 ctx.fillStyle = (st.glowForward > 0.2 ? PALETTE.terracotta : (st.glowBackward > 0.2 ? PALETTE.olive : PALETTE.inkSoft));
                 ctx.textAlign = 'left';
                 ctx.fillText(displayBadge, st.x + (isCompact ? 13 : 14), st.y + 13);
 
                 // Stage Title
-                ctx.font = isCompact ? 'bold 9px "JetBrains Mono", monospace' : 'bold 10px "JetBrains Mono", monospace';
-                ctx.fillStyle = isHover ? '#ffffff' : PALETTE.ink;
+                ctx.font = isCompact ? 'bold 9px "IBM Plex Mono", monospace' : 'bold 10px "IBM Plex Mono", monospace';
+                ctx.fillStyle = isHover ? '#16191D' : PALETTE.ink;
                 ctx.textAlign = 'center';
                 ctx.fillText(displayTitle, st.cx, st.y + st.h * 0.40);
 
                 // Subtitle
                 if (st.h > 80) {
-                    ctx.font = isCompact ? '7.5px "JetBrains Mono", monospace' : '8.5px "JetBrains Mono", monospace';
+                    ctx.font = isCompact ? '7.5px "IBM Plex Mono", monospace' : '8.5px "IBM Plex Mono", monospace';
                     ctx.fillStyle = PALETTE.gold;
                     ctx.fillText(st.stage.sub, st.cx, st.y + st.h * 0.60);
                 }
 
                 // Chip Tag
                 if (st.h > 100 && !isCompact) {
-                    ctx.font = '8px "JetBrains Mono", monospace';
+                    ctx.font = '8px "IBM Plex Mono", monospace';
                     ctx.fillStyle = PALETTE.inkSoft;
                     ctx.fillText(st.stage.chip, st.cx, st.y + st.h * 0.78);
                 }
@@ -1294,11 +1294,11 @@
                 // Re-compute / Checkpoint Tag during Backward
                 if (st.glowBackward > 0.3 && (idx >= 1 && idx <= 4)) {
                     ctx.fillStyle = PALETTE.olive;
-                    ctx.font = 'bold 7.5px "JetBrains Mono", monospace';
+                    ctx.font = 'bold 7.5px "IBM Plex Mono", monospace';
                     ctx.fillText('RE-COMPUTE', st.cx, st.y + st.h - 6);
                 } else if (st.glowAdam > 0.3) {
                     ctx.fillStyle = PALETTE.gold;
-                    ctx.font = 'bold 7.5px "JetBrains Mono", monospace';
+                    ctx.font = 'bold 7.5px "IBM Plex Mono", monospace';
                     ctx.fillText('θ UPDATE', st.cx, st.y + st.h - 6);
                 }
 
@@ -1313,8 +1313,8 @@
                     ctx.beginPath();
                     ctx.moveTo(gapStartX, midY);
                     ctx.lineTo(gapEndX, midY);
-                    ctx.strokeStyle = (st.glowForward > 0.2 || nextSt.glowForward > 0.2) ? 'rgba(224, 122, 63, 0.7)' :
-                                      (st.glowBackward > 0.2 || nextSt.glowBackward > 0.2) ? 'rgba(154, 148, 64, 0.7)' :
+                    ctx.strokeStyle = (st.glowForward > 0.2 || nextSt.glowForward > 0.2) ? 'rgba(31, 74, 115, 0.7)' :
+                                      (st.glowBackward > 0.2 || nextSt.glowBackward > 0.2) ? 'rgba(92, 107, 95, 0.7)' :
                                       PALETTE.ruleStrong;
                     ctx.lineWidth = (st.glowForward > 0.2 || nextSt.glowForward > 0.2 || st.glowBackward > 0.2 || nextSt.glowBackward > 0.2) ? 1.5 : 1.0;
                     ctx.stroke();
@@ -1674,7 +1674,7 @@
             var rMax = Math.min(cx, cy) * 0.88;
 
             /* Axes */
-            ctx.strokeStyle = '#2c261c';
+            ctx.strokeStyle = '#E1E5E6';
             ctx.lineWidth = 0.5;
             ctx.beginPath();
             ctx.moveTo(0, cy); ctx.lineTo(w, cy);
@@ -1682,7 +1682,7 @@
             ctx.stroke();
 
             /* Unit circle (dashed) */
-            ctx.strokeStyle = '#3a3226';
+            ctx.strokeStyle = '#D2D7D9';
             ctx.lineWidth = 0.5;
             ctx.setLineDash([3, 3]);
             ctx.beginPath();
@@ -1691,8 +1691,8 @@
             ctx.setLineDash([]);
 
             /* Axis labels */
-            ctx.fillStyle = '#7a7160';
-            ctx.font = '9px JetBrains Mono, monospace';
+            ctx.fillStyle = '#78818A';
+            ctx.font = '9px IBM Plex Mono, monospace';
             ctx.fillText('Re', w - 16, cy - 4);
             ctx.fillText('Im', cx + 4, 10);
 
@@ -1708,12 +1708,12 @@
                 var pyC = cy + im * rMax;
 
                 ctx.globalAlpha = 0.75 * ev.mag;
-                ctx.fillStyle = '#e07a3f';
+                ctx.fillStyle = '#1F4A73';
                 ctx.beginPath();
                 ctx.arc(px, py, dotR, 0, Math.PI * 2);
                 ctx.fill();
 
-                ctx.fillStyle = '#9a9440';
+                ctx.fillStyle = '#5C6B5F';
                 ctx.beginPath();
                 ctx.arc(px, pyC, dotR, 0, Math.PI * 2);
                 ctx.fill();
@@ -1726,7 +1726,7 @@
                 pulse.r += 1.5;
                 pulse.alpha *= 0.96;
                 if (pulse.alpha < 0.02) { decayPulses.splice(p, 1); continue; }
-                ctx.strokeStyle = 'rgba(224, 122, 63, ' + pulse.alpha + ')';
+                ctx.strokeStyle = 'rgba(31, 74, 115, ' + pulse.alpha + ')';
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.arc(cx, cy, pulse.r, 0, Math.PI * 2);
@@ -1798,8 +1798,8 @@
             var abs = Math.abs(w);
             if (abs < 0.01) return '';
             var t = Math.min(1, abs / 0.6);
-            if (w > 0) return 'rgba(224,122,63,' + (t * 0.55).toFixed(2) + ')';
-            return 'rgba(154,148,64,' + (t * 0.55).toFixed(2) + ')';
+            if (w > 0) return 'rgba(31, 74, 115,' + (t * 0.55).toFixed(2) + ')';
+            return 'rgba(92, 107, 95,' + (t * 0.55).toFixed(2) + ')';
         }
 
         function updateDisplay() {
