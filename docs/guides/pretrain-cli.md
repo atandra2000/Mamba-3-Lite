@@ -160,20 +160,25 @@ self.optimizer = AdamW([
 
 Parameters are first deduplicated by `id(p)` — under weight tying, `lm_head.weight` *is* `embed.weight` (same `data_ptr`), so the shared tensor is optimized exactly once. Dim ≥ 2 (matrices, embeddings) gets `weight_decay=0.1`; dim < 2 (biases, norms, the complex per-head `A` scalar) gets none. `fused=False` keeps the optimizer portable (CPU and non-fused-CUDA paths).
 
-The schedule is a `SequentialLR`:
+The schedule is built by `training/pretrain.py:build_schedulers`, a warmup-then-cosine `SequentialLR`:
 
 ```python
-warmup = LinearLR(self.optimizer, start_factor=0.01, end_factor=1.0, total_iters=config.warmup_steps)
-cosine = CosineAnnealingLR(self.optimizer, T_max=config.max_steps - config.warmup_steps,
-                           eta_min=config.lr * config.min_lr_ratio)
-self.scheduler = SequentialLR(self.optimizer, schedulers=[warmup, cosine], milestones=[config.warmup_steps])
+def build_schedulers(optimizer: torch.optim.Optimizer, config: TrainingConfig):
+    opt_steps = max(1, config.max_steps // config.gradient_accumulation_steps)
+    warm = max(1, min(config.warmup_steps, opt_steps - 1))
+    warmup = LinearLR(optimizer, start_factor=0.01, end_factor=1.0, total_iters=warm)
+    cosine = CosineAnnealingLR(optimizer, T_max=opt_steps - warm,
+                               eta_min=config.lr * config.min_lr_ratio)
+    return SequentialLR(optimizer, schedulers=[warmup, cosine], milestones=[warm])
 ```
+
+`max_steps` counts **micro-batches**, but the scheduler advances once per optimizer step. The horizon is `opt_steps = max_steps // gradient_accumulation_steps`, not `max_steps`. Passing `max_steps` to `T_max` stretched the cosine `gradient_accumulation_steps`-fold and the decay never finished.
 
 The learning rate over optimizer step $s$ is
 
 $$\eta(s) = \begin{cases} \eta_{\max}\left(0.01 + 0.99\,\dfrac{s}{w_{\text{warm}}}\right) & 0 \le s \le w_{\text{warm}} \\[6pt] \eta_{\min} + \left(\eta_{\max}-\eta_{\min}\right)\dfrac{1+\cos\left(\pi\,\dfrac{s-w_{\text{warm}}}{S_{\max}-w_{\text{warm}}}\right)}{2} & w_{\text{warm}} < s \le S_{\max} \end{cases}$$
 
-with $\eta_{\max}=\text{lr}=3\times10^{-4}$, $\eta_{\min}=\text{lr}\times\text{min\_lr\_ratio}=1.5\times10^{-5}$, $w_{\text{warm}}=2000$, $S_{\max}=256000$. Verified empirically against torch 2.12 with `warmup_steps=3`: LR at steps 0/1/2/3 is $0.01\times$, $0.34\times$, $0.67\times$, $1.0\times\eta_{\max}$ — linear interpolation hitting exactly $\eta_{\max}$ at the milestone — and the cosine is then re-initialized to its epoch-0 value (also $\eta_{\max}$), so the transition is continuous with no spike. The scheduler steps **only on optimizer steps** (every `gradient_accumulation_steps` micro-batches), so "step" above means optimizer step.
+with $\eta_{\max}=\text{lr}=3\times10^{-4}$, $\eta_{\min}=\text{lr}\times\text{min\_lr\_ratio}=1.5\times10^{-5}$, $w_{\text{warm}}=2000$, $S_{\max}=\text{opt\_steps}=\lfloor\text{max\_steps}/\text{gradient\_accumulation\_steps}\rfloor=128000$ under the dataclass defaults. Verified empirically against torch 2.12 with `warmup_steps=3`: LR at steps 0/1/2/3 is $0.01\times$, $0.34\times$, $0.67\times$, $1.0\times\eta_{\max}$ — linear interpolation hitting exactly $\eta_{\max}$ at the milestone — and the cosine is then re-initialized to its epoch-0 value (also $\eta_{\max}$), so the transition is continuous with no spike. The scheduler steps **only on optimizer steps** (every `gradient_accumulation_steps` micro-batches), so "step" above means optimizer step.
 
 ## 8. `torch.compile` wiring and environment variables
 
